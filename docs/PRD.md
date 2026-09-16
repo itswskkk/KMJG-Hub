@@ -78,6 +78,23 @@ A Project Workspace may contain:
 - Tasks
 - Notifications
 
+### Project Communication Model
+
+Each Project has one primary Project Chat in KMJG Hub v1.
+
+The Project Chat is the shared conversation space for authorized Project members.
+
+The Project Chat may contain:
+
+- Messages from Project members
+- Project Chat file attachments
+- Configured Git activity
+- Relevant system activity
+
+KMJG Hub v1 does not provide Discord-style multiple text channels within a Project.
+
+Direct Messages are separate Server-level conversations and do not belong to the Project Chat.
+
 ---
 
 ## Deployment Model
@@ -208,6 +225,42 @@ is separate from an account created on:
 
 KMJG Hub v1 does not require a centralized global KMJG Hub account service.
 
+### Multi-Server Client Support
+
+A single KMJG Hub Desktop Client may connect to multiple independent self-hosted KMJG Hub Servers.
+
+The Client may remember Servers that the user has previously connected to.
+
+Each Server maintains its own independent:
+
+- User account
+- Authentication session
+- Projects
+- Friends
+- Direct Messages
+- Notifications
+- Profile
+- Other Server-managed data
+
+Data and authorization from one KMJG Hub Server must not grant access to another Server.
+
+Users may switch between previously connected Servers without being required to log out of the currently active Server first.
+
+If the Client has a valid authenticated session for the selected Server, the user may continue without logging in again.
+
+If no valid session exists, the user must authenticate with that Server.
+
+Removing a saved Server from the Desktop Client removes only the local saved Server connection and associated local Client state as applicable.
+
+Removing a saved Server must not delete:
+
+- The KMJG Hub Server
+- The user's Server account
+- Projects
+- Server-side conversations
+- Files
+- Other Server-managed data
+
 ---
 
 ## Data Privacy and Retention
@@ -234,9 +287,35 @@ When a user deletes a message:
 - The server retains the deleted message temporarily using soft deletion.
 - Deleted messages may be recovered by the Server Administrator when necessary.
 - Deleted messages are automatically permanently removed after 30 days.
-- Normal Project Members and Project Owners cannot use the KMJG Hub Client to inspect deleted message contents.
+- Normal Project Members, Project Admins, and Project Owners cannot use the KMJG Hub Client to inspect deleted message contents.
 
 Backup retention must be designed separately and documented clearly, since deleted data may remain inside existing backups until those backups expire.
+
+### Message Deletion Permissions
+
+KMJG Hub v1 supports deletion of user-generated messages according to the message context.
+
+A user may delete a message that they originally sent.
+
+For Project Chat:
+
+- A member may delete their own Project Chat messages.
+- The Project Owner or an Admin may delete user-generated Project Chat messages for moderation purposes.
+- A regular Member may not delete another member's Project Chat message.
+
+For Direct Messages:
+
+- A user may delete only Direct Messages that they originally sent.
+- Project roles such as Owner or Admin do not grant permission to delete another user's Direct Messages.
+- A user may not delete a Direct Message originally sent by the other participant.
+
+Deleting a message removes it from normal Client access for all users who would otherwise be able to view that message.
+
+KMJG Hub v1 does not require a separate "Delete for me" message action.
+
+Configured Git activity and Server-generated system activity are not treated as ordinary user-authored messages for message deletion permissions.
+
+All message deletion operations must continue to follow the 30-day soft-deletion and Server Administrator recovery behavior defined above.
 
 ---
 
@@ -414,13 +493,21 @@ A Project may later be associated with its Git repository according to the suppo
 
 The Project Owner may transfer ownership to another Project member.
 
+During the ownership transfer, the current Owner must select the Project role they will hold after the transfer:
+
+- Admin
+- Member
+
 After the transfer:
 
 - The selected member becomes the new Owner.
 - The previous Owner no longer holds ownership.
-- The previous Owner remains a Project member unless they leave or their role is changed.
+- The previous Owner remains in the Project with the selected Admin or Member role.
+- The Project continues to have exactly one Owner.
 
-A Project must always have an Owner while it is active.
+Ownership transfer must not remove the previous Owner from the Project automatically.
+
+If the previous Owner wants to leave the Project, they may do so after the ownership transfer has completed.
 
 ### Leaving a Project
 
@@ -438,7 +525,7 @@ When a Project is deleted:
 
 - The Project becomes unavailable for normal use.
 - Its KMJG Hub project data is retained for 30 days.
-- The original Owner may restore the Project during the retention period.
+- The user who was the Project Owner at the time of deletion may restore the Project during the retention period.
 - The Server Administrator may also restore the Project during the retention period.
 - After 30 days, the Project and its retained project data are permanently deleted according to the server's retention process.
 
@@ -448,11 +535,13 @@ For example, deleting a KMJG Hub Project associated with a GitHub repository doe
 
 ### Project Recovery
 
-Deleted Projects should be available to their original Owner through a recovery area such as:
+Deleted Projects should be available through a recovery area such as:
 
     Recently Deleted Projects
 
-During the 30-day retention period, the Owner may restore the Project.
+During the 30-day retention period, the user who was the Project Owner at the time of deletion may restore the Project.
+
+Restoring the Project restores that user as the Project Owner unless a separate Server Administrator recovery procedure explicitly resolves an exceptional ownership condition.
 
 The Server Administrator must also have a server-side recovery mechanism for deleted Projects.
 
@@ -897,8 +986,10 @@ The Server Administrator controls the backup retention policy for their self-hos
 Server backup configuration may include:
 
 - Whether automatic backups are enabled
+- Backup frequency
 - Backup retention duration
 - Maximum number of retained backups
+- Backup storage location
 - Deployment-specific backup limits or policies
 
 A Server Administrator may configure an appropriate retention period according to the deployment's storage capacity and operational requirements.

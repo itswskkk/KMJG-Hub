@@ -305,6 +305,84 @@ Private conversations between users must not appear in the Project Chat timeline
 
 KMJG Hub v1 does not use Discord-style multiple text channels within a Project.
 
+## Message Deletion Experience
+
+KMJG Hub allows users to delete user-generated messages according to their permissions.
+
+### Deleting Your Own Message
+
+A user may delete a message that they originally sent in:
+
+- Project Chat
+- Direct Messages
+
+A delete action should require confirmation before the message is removed from normal Client access.
+
+Example:
+
+    Delete this message?
+
+    This message will be removed from normal access
+    and retained by the Server for 30 days.
+
+    [ Cancel ] [ Delete ]
+
+After deletion, the message is no longer visible as normal message content to users who previously had access to it.
+
+KMJG Hub v1 does not require a separate "Delete for me" action.
+
+### Project Chat Moderation
+
+In Project Chat:
+
+- Members may delete only their own messages.
+- Project Owners and Admins may delete user-generated Project Chat messages for moderation purposes.
+- Regular Members cannot delete another member's messages.
+
+When an Owner or Admin deletes another user's Project Chat message, the Client should require confirmation.
+
+Example:
+
+    Delete Meran's message?
+
+    This message will be removed from Project Chat
+    for all Project members.
+
+    [ Cancel ] [ Delete Message ]
+
+### Direct Message Deletion
+
+In Direct Messages, a user may delete only messages that they originally sent.
+
+Project roles such as Owner or Admin do not grant permission to delete another user's Direct Messages.
+
+A user cannot delete a Direct Message sent by the other participant.
+
+### Deleted Message Display
+
+Deleted message content must not remain visible through normal Client access.
+
+The Client may display a neutral placeholder where appropriate, such as:
+
+    Message deleted
+
+The placeholder must not reveal the deleted message content.
+
+Deleted message content is retained by the Server for the applicable 30-day soft-deletion period and may be recovered only through Server Administrator recovery procedures.
+
+### Attachments
+
+If a deleted Project Chat message contains an attachment:
+
+- The attachment becomes unavailable through normal Client access.
+- The attachment follows the same applicable 30-day soft-deletion retention period.
+
+### System and Git Activity
+
+Configured Git activity and Server-generated system activity are not treated as normal user-authored messages.
+
+The standard user message deletion action is not shown for these entries.
+
 ---
 
 ## Task Experience
@@ -355,6 +433,41 @@ A user may have multiple assigned Tasks but only one Current Task at a time.
 Selecting a To Do Task as the Current Task may automatically move it to In Progress.
 
 Tasks are moved to Done manually.
+
+### Task Assignment Experience
+
+Project members may assign Tasks to themselves or to another Project member.
+
+Assigning a Task to yourself takes effect immediately and does not require an additional confirmation.
+
+When a Task is assigned to another Project member, the recipient receives a Task Assignment Request.
+
+Example:
+
+    Meran assigned you a Task
+
+    Implement Authentication
+
+    Project: KMJG Hub Development
+
+    [ Decline ] [ Accept ]
+
+The recipient must explicitly Accept or Decline the assignment.
+
+If the recipient accepts:
+
+- The Task becomes assigned to that user.
+- The Task appears in the user's assigned Tasks.
+- The user may later set the Task as their Current Task.
+
+If the recipient declines:
+
+- The proposed assignment is not applied.
+- The Task remains available according to its existing Project state.
+
+A pending Task Assignment Request should remain available until the recipient responds or until the request is no longer valid.
+
+Task Assignment Requests may also appear through the Server-level notification experience.
 
 ---
 
@@ -852,7 +965,8 @@ Authorized users may:
 - Configure expiration
 - Configure maximum uses
 - Revoke active invites
-- View or cancel pending Direct Invitations
+- View pending Direct Invitations where permitted
+- Cancel a pending Direct Invitation only when the current user is its inviter
 
 ### Git Integration
 
@@ -873,6 +987,52 @@ Depending on permissions, these may include:
 - Delete Project
 
 Destructive actions should require explicit confirmation before execution.
+
+### Transfer Ownership
+
+Only the current Project Owner may transfer Project ownership.
+
+The transfer flow requires the Owner to select:
+
+- The Project member who will become the new Owner
+- The role the current Owner will hold after the transfer
+
+The current Owner may remain in the Project as:
+
+- Admin
+- Member
+
+Example:
+
+    Transfer Ownership
+
+    New Owner
+    [ Meran ▼ ]
+
+    My role after transfer
+    ( ) Admin
+    ( ) Member
+
+    [ Cancel ] [ Continue ]
+
+Before completing the transfer, KMJG Hub must request explicit confirmation.
+
+Example:
+
+    Transfer ownership to Meran?
+
+    Meran will become the new Project Owner.
+    You will remain in the Project as Admin.
+
+    [ Cancel ] [ Transfer Ownership ]
+
+After a successful transfer:
+
+- The selected member becomes the Project Owner.
+- The previous Owner remains in the Project with the selected role.
+- The Project continues to have exactly one Owner.
+
+If the previous Owner wants to leave the Project, they may do so after the ownership transfer has completed.
 
 ---
 
@@ -902,7 +1062,7 @@ Deleting a KMJG Hub Project does not delete its connected external Git repositor
 
 ### Recently Deleted Projects
 
-The original Project Owner may access deleted Projects through a recovery area.
+The user who was the Project Owner at the time of deletion may access the deleted Project through a recovery area.
 
 Example:
 
@@ -916,6 +1076,8 @@ Example:
 The interface should clearly display the remaining recovery period.
 
 Restoring the Project returns it to normal Project access.
+
+After restoration, the user who was the Project Owner at the time of deletion is restored as the Project Owner.
 
 After the 30-day retention period expires, the Project is no longer recoverable through the normal Client recovery experience.
 

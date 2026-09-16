@@ -64,9 +64,10 @@ Each project acts as the central context for collaboration.
 
 For the initial version:
 
-- One KMJG Hub Project is associated with one Git repository.
-- A user may belong to multiple projects.
-- Each project has its own members, conversations, files, Git activity, tasks, and notifications.
+- One KMJG Hub Project may be associated with a maximum of one Git repository.
+- A Project may exist without a connected Git repository and connect one later.
+- A user may belong to multiple Projects.
+- Each Project has its own members, conversations, files, Git activity, tasks, and notifications.
 
 This makes the project — rather than chat channels or servers — the center of the experience.
 
@@ -99,17 +100,20 @@ The goal is not to let AI automatically commit or push code on behalf of the tea
 
 Communication is part of the workspace, but KMJG Hub is not designed to be a Discord replacement.
 
-Projects may provide collaboration spaces such as:
+Each Project provides one primary Project Chat for shared team communication.
 
-- General discussion
-- Announcements
+The Project Chat may contain:
+
+- Messages from Project members
+- Shared file attachments
 - Git activity
-- Files
-- Tasks
+- Relevant system activity
 
-Users may also communicate directly with other members through private messages.
+KMJG Hub v1 does not use Discord-style multiple text channels within a Project.
 
-The purpose of communication inside KMJG Hub is to keep project discussions close to the development context.
+Users may also communicate directly through private Direct Messages where permitted.
+
+The purpose of communication inside KMJG Hub is to keep team discussion close to the development context without turning the Project into a traditional chat server.
 
 ---
 
