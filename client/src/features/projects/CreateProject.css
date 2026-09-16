@@ -1,0 +1,65 @@
+.create-project {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  box-sizing: border-box;
+}
+
+.create-project__card {
+  width: 100%;
+  max-width: 480px;
+}
+
+.create-project__form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.create-project__label {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.create-project__form input[type="text"],
+.create-project__form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+}
+
+.create-project__repo {
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.create-project__radio {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.create-project__radio input:disabled {
+  cursor: not-allowed;
+}
+
+.create-project__error {
+  margin: -0.25rem 0 0;
+  color: #d33;
+  font-size: 0.875rem;
+}
+
+.create-project__buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}

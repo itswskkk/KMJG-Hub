@@ -1,0 +1,49 @@
+# Minimal self-hosted KMJG Hub deployment, per docs/ARCHITECTURE.md
+# "Containerized Deployment":
+#
+#   KMJG Hub Deployment
+#   +-- kmjg-server
+#   +-- postgres
+#   +-- persistent-data
+#       +-- file-storage
+#       +-- database-data
+#
+# Copy .env.example to .env and adjust values before running:
+#   docker compose up --build
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kmjg}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-kmjg_hub}
+    volumes:
+      - database-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kmjg} -d ${POSTGRES_DB:-kmjg_hub}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  kmjg-server:
+    build:
+      context: ./server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      KMJG_LISTEN_ADDR: ":8080"
+      KMJG_DATABASE_URL: postgres://${POSTGRES_USER:-kmjg}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-kmjg_hub}?sslmode=disable
+      KMJG_ALLOWED_ORIGINS: ${KMJG_ALLOWED_ORIGINS:-http://localhost:1420,tauri://localhost,http://tauri.localhost,https://tauri.localhost}
+      KMJG_SESSION_TTL_HOURS: ${KMJG_SESSION_TTL_HOURS:-720}
+    ports:
+      - "${KMJG_PUBLISHED_PORT:-8080}:8080"
+    volumes:
+      - file-storage:/var/lib/kmjg-hub/files
+
+volumes:
+  database-data:
+  file-storage:

@@ -1,0 +1,5 @@
+# Deployment secrets must never enter the repository (docs/PRD.md
+# "Open Source and Privacy").
+.env
+.env.*
+!.env.example
