@@ -3,33 +3,34 @@ import "./Overview.css";
 
 interface OverviewProps {
   detail: ProjectDetail;
+  onViewMembers: () => void;
 }
 
 /**
- * Project Overview, per docs/UX.md "Project Overview". Members are real
- * data (docs/UX.md "Members Experience" fields we do have: display name,
- * role). Online presence, Tasks, Git activity, and Project activity are
- * separate features not built in this checkpoint (see PROGRESS.md) — those
- * sections are shown honestly as not-yet-available rather than backed by
- * fabricated data, the same pattern used for the disabled GitHub login
- * option.
+ * Project Overview, per docs/UX.md "Project Overview". Member count is real
+ * data; the full member list with roles now lives in the dedicated Members
+ * section (docs/UX.md "Members Experience") rather than being duplicated
+ * here, matching the UX mockup's own "Members Online 3/4" summary rather
+ * than a full roster. Online presence, Tasks, Git activity, and Project
+ * activity are separate features not built in this checkpoint (see
+ * PROGRESS.md) — those sections are shown honestly as not-yet-available
+ * rather than backed by fabricated data, the same pattern used for the
+ * disabled GitHub login option.
  */
-function Overview({ detail }: OverviewProps) {
+function Overview({ detail, onViewMembers }: OverviewProps) {
   return (
     <div className="overview">
       {detail.description && <p className="overview__description">{detail.description}</p>}
 
       <section className="overview__section">
         <h2>Members</h2>
-        <ul className="overview__members">
-          {detail.members.map((member) => (
-            <li key={member.id}>
-              <span className="overview__member-name">{member.username}</span>
-              <span className="overview__member-role">{member.role}</span>
-            </li>
-          ))}
-        </ul>
+        <p>
+          {detail.members.length} {detail.members.length === 1 ? "Member" : "Members"}
+        </p>
         <p className="overview__note">Online presence is not implemented yet.</p>
+        <button type="button" onClick={onViewMembers}>
+          View Members
+        </button>
       </section>
 
       <section className="overview__section">

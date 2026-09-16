@@ -1,0 +1,108 @@
+.members h1 {
+  margin-top: 0;
+}
+
+.members__note {
+  opacity: 0.6;
+  font-size: 0.875rem;
+  font-style: italic;
+  margin: 0.35rem 0 1.25rem;
+}
+
+.members__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.members__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.members__row:hover {
+  background: rgba(128, 128, 128, 0.08);
+}
+
+.members__name {
+  font-weight: 500;
+}
+
+.members__role {
+  opacity: 0.7;
+  font-size: 0.85rem;
+  text-transform: capitalize;
+}
+
+.member-detail__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  box-sizing: border-box;
+}
+
+.member-detail {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  background: #f6f6f6;
+  color: #0f0f0f;
+  border-radius: 10px;
+  padding: 1.5rem;
+  box-sizing: border-box;
+}
+
+@media (prefers-color-scheme: dark) {
+  .member-detail {
+    background: #2f2f2f;
+    color: #f6f6f6;
+  }
+}
+
+.member-detail h2 {
+  margin: 0 0 0.25rem;
+}
+
+.member-detail__close {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.75rem;
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: inherit;
+  box-shadow: none;
+  padding: 0.25rem;
+}
+
+.member-detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.member-detail__actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

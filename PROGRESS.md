@@ -13,21 +13,82 @@ conflicts with those docs, the docs win and this file should be corrected.
 
 ## Current Milestone / Vertical Slice
 
-First vertical slice, per direct instruction from the project owner:
-
-```
-Desktop Client → Connect Server → Login → Load Projects → Select Project → Overview
-```
-
-**This entire vertical slice is now implemented end-to-end**, verified
-against a real PostgreSQL-backed server running via `docker compose`. Details
-below are grouped by the two checkpoints that built it: Connect Server →
-Login (previous checkpoint) and Load Projects → Select Project → Overview
-(this checkpoint).
+The first vertical slice (Connect Server → Login → Load Projects → Select
+Project → Overview) is complete and was verified end-to-end against a real
+PostgreSQL-backed server. This session's checkpoint (**Members**) builds on
+top of it, per direct instruction from the project owner, rather than
+extending that original slice's scope.
 
 ## Completed
 
-### Checkpoint 2: Load Projects → Select Project → Overview (this checkpoint)
+### Checkpoint 3: Members (this checkpoint)
+
+**Scope decision made before starting, per the project owner's explicit
+choice when asked:** `docs/UX.md` has two related but distinct sections —
+"Members Experience" (pure viewing: who's in the project, their role) and
+"Removing a Project Member Experience" (Owner/Admin can remove a member,
+with confirmation). The project owner's checkpoint instructions were
+ambiguous about whether "authorization clearly separated by Owner/Admin/
+Member" meant just structuring the domain for future role checks, or meant
+actually implementing the one place PRD roles concretely diverge (remove
+member). Asked directly; the answer was **view-only** — build "Members
+Experience" only, defer "Removing a Project Member Experience" (and its
+UX-mandated "also remove repository access" checkbox, which needs Git
+integration to mean anything) to a future member-management checkpoint.
+
+**No backend or database changes this checkpoint.** `GET
+/api/v1/projects/{id}` (built in the previous checkpoint) already returns
+each member's `id`, `username`, and `role` inside `ProjectDetail.members` —
+exactly what `docs/UX.md` "Members Experience" needs for the fields we
+actually have. Viewing the member list is already open to every Project
+member regardless of role per `docs/PRD.md` ("Member can: View Project
+members and their presence status"), and that was already true by
+construction (`GetDetailForUser`'s membership check, not a role check).
+Adding a second endpoint that returns the same data shaped slightly
+differently would have been pure duplication, so the Members screen reuses
+the existing `getProject` call already made by `ProjectWorkspace`.
+
+**Client (React/TypeScript) — all of this checkpoint's work:**
+
+- **`src/features/projects/Members.tsx`** + **`Members.css`** — new. Full
+  member list (per `docs/UX.md` "Members Experience"): username + role per
+  row, with an honest "Online presence and work status are not implemented
+  yet" note instead of the presence dots (`●`/`○`) the UX mockup shows —
+  rendering a fake online/offline indicator would be exactly the "fake
+  data" the checkpoint instructions ruled out, since there is no presence
+  system at all yet. Clicking a member opens a compact **Member Detail**
+  overlay (`docs/UX.md` "Member Details"): username, role, an honest note
+  that Presence/Work Status/Current Branch/Current Task aren't implemented,
+  and all four documented quick actions (Chat, Send File, View Branch, View
+  Current Task) rendered as real, visible, `disabled` buttons with a
+  tooltip naming the specific unbuilt feature each depends on (Direct
+  Messages, Direct File Transfer, Git integration, Tasks respectively) —
+  same disabled-not-omitted treatment used for the GitHub login option and
+  the Project Workspace sidebar stubs in previous checkpoints. Verified live
+  that a disabled quick-action button is inert (click does nothing, no
+  console error).
+- **`src/features/projects/ProjectWorkspace.tsx`** — restructured from
+  "Overview is the only real section, everything else in the sidebar is a
+  disabled `<span>`" into a small `Section` (`"overview" | "members"`)
+  state: Overview and Members are now both real, clickable sidebar buttons
+  that switch content instantly using the project detail data already
+  fetched once (no second network round-trip when switching sections);
+  Chat/Tasks/Git/Files/Developer Tools remain disabled `<span>`s exactly as
+  before — untouched, since none of them are in scope for this checkpoint.
+- **`src/features/projects/Overview.tsx`** — simplified the Members section
+  from a full inline roster (a previous-checkpoint addition that went
+  further than the UX mockup, made before a dedicated Members screen
+  existed) down to a member count + "View Members" button that switches
+  `ProjectWorkspace` to the Members section. This matches
+  `docs/UX.md`'s actual Overview mockup ("Members Online 3/4" — a summary
+  stat, not a roster) more closely, and removes the duplication of showing
+  the same per-member role list in two places now that Members is real.
+  Removed the now-unused `.overview__members`/`.overview__member-role`
+  CSS rules from `Overview.css`.
+
+## Completed (previous checkpoint)
+
+### Checkpoint 2: Load Projects → Select Project → Overview
 
 **Fix carried in from the previous checkpoint's verification** (flagged by
 the project owner, authorized as a small in-scope fix):
@@ -167,7 +228,20 @@ backend เท่าที่จำเป็น" / "อย่าขยายscop
 
 ## Files Changed
 
-**This checkpoint:**
+**This checkpoint (Members) — client-only, no backend/database changes:**
+- `client/src/features/projects/Members.tsx`, `Members.css` — new: the
+  Members list screen and the Member Detail overlay.
+- `client/src/features/projects/ProjectWorkspace.tsx` — reworked sidebar
+  into a real `overview`/`members` section switch; Overview and Members
+  sidebar entries are now clickable buttons instead of static disabled
+  `<span>`s (the other five items are unchanged, still disabled).
+- `client/src/features/projects/Overview.tsx`, `Overview.css` — Members
+  section simplified from a full roster to a count + "View Members" button;
+  removed the now-unused per-member-row CSS.
+- `PROGRESS.md` — this file.
+
+**Previous checkpoint (Load Projects → Select Project → Overview) — unchanged
+this session:**
 - `server/internal/auth/service.go` — added `ErrSessionInvalid`; `CurrentUser`
   now returns it instead of `ErrInvalidCredentials`.
 - `server/internal/auth/service_test.go` — updated two assertions for the
@@ -202,7 +276,6 @@ backend เท่าที่จำเป็น" / "อย่าขยายscop
   new.
 - `client/src/App.tsx` — extended state machine through Projects/Overview.
 - `client/src/App.css` — dark-mode `textarea` fix.
-- `PROGRESS.md` — this file.
 
 **Previous checkpoint** (Connect Server → Login; unchanged this session —
 see git history / the prior version of this file for full detail): all of
@@ -211,9 +284,31 @@ root `.gitignore`, `client/src/features/auth/`, original `apiClient.ts`.
 
 ## Tests / Build Checks (most recent)
 
-- **Server:**
+- **This checkpoint (Members):**
+  - No backend changes, so no new Go tests were needed or added; re-ran the
+    full existing suite as a regression check — `go build ./...`,
+    `go vet ./...`, `gofmt -l .`, `go test ./...` all still pass unchanged.
+  - `npm run build` (`tsc && vite build`) — passes, no type errors.
+  - **Live browser walkthrough against the real running server** (the same
+    `docker compose` containers from the previous checkpoint, still up —
+    no rebuild needed since nothing server-side changed): logged in with
+    the same real account used in the previous checkpoint's verification,
+    opened "Game Center" (a real project with exactly one real member,
+    since there is still no way to add a second member to a project without
+    the deferred Join/Invite flow) → Overview now shows "1 Member" +
+    "View Members" instead of the old inline roster → clicked it → landed
+    on the new Members screen showing the real member (username + Owner
+    role) → clicked the member row → Member Detail overlay opened showing
+    username, role, the honest not-implemented-yet note, and all four quick
+    action buttons visibly disabled → clicked the disabled "Chat" button to
+    confirm it's genuinely inert (no navigation, no console error) →
+    clicked outside the overlay to close it → clicked back to Overview and
+    to Members again to confirm section switching doesn't re-fetch or
+    flicker. No console errors at any point.
+- **Previous checkpoint (Load Projects → Select Project → Overview), for
+  reference — unchanged this session:**
   - `go build ./...`, `go vet ./...`, `gofmt -l .` — all clean.
-  - `go test ./...` — passes. New coverage this checkpoint:
+  - `go test ./...` — passes. Coverage added that checkpoint:
     `internal/project` (`Service.Create` makes the creator Owner with
     exactly one member; rejects empty/whitespace-only/too-long name and
     too-long description; `List` only returns the caller's projects;
@@ -267,7 +362,7 @@ root `.gitignore`, `client/src/features/auth/`, original `apiClient.ts`.
     Projects code and reused the same Postgres volume/container, so the
     verification above is on top of that same real database, not a fresh
     throwaway one.
-- **Client:**
+- **Previous checkpoint's client verification, for reference:**
   - `npm run build` (`tsc && vite build`) — passes, no type errors.
   - **Live browser walkthrough against the real running server** (no stub
     this time — Docker/Postgres access made that unnecessary): Connect to
@@ -287,11 +382,33 @@ root `.gitignore`, `client/src/features/auth/`, original `apiClient.ts`.
 
 ## Implementation Decisions Made
 
-These are simple-for-v1 choices made where the docs didn't lock in a detail.
-Revisit if a future slice's requirements make them wrong. (Decisions from
-the previous checkpoint — Argon2id params, session TTL default, migration
-tooling choice, CORS defaults, etc. — are unchanged and not repeated here;
-see git history for that version of this file if needed.)
+**This checkpoint (Members):**
+
+- **View-only, no member management action, by explicit project-owner
+  choice** (see "Scope decision" under Completed above). "Removing a
+  Project Member Experience" is real docs/UX.md scope, just not this
+  checkpoint's.
+- **Presence indicators (`●`/`○`) from the UX mockup were dropped entirely
+  rather than rendered as a static/neutral icon.** A static dot next to
+  each name would still visually read as *some* status, which is worse
+  than no icon at all when there's no real status behind it — the
+  checkpoint instructions were explicit about not faking data, and a
+  fake-but-neutral-looking icon is still a step in that direction. A plain
+  text note ("not implemented yet") can't be misread as real status.
+- **Overview's Members section was edited** even though this checkpoint's
+  brief was "Members," not "Overview" — justified because it was
+  duplicating the exact same per-member role list the new Members screen
+  now owns, and leaving that duplication in place would mean two different
+  UI surfaces could drift out of sync for no reason. Scoped narrowly (only
+  the Members subsection changed; Repository/Tasks/Git Activity/Project
+  Activity untouched).
+- **No new endpoint for the Members screen.** Reusing `GET
+  /api/v1/projects/{id}` (already fetched by `ProjectWorkspace` on mount)
+  keeps the checkpoint's backend footprint at zero, per "เพิ่ม backend/API/
+  database changes เท่าที่จำเป็น" — there was nothing to add.
+
+**Previous checkpoint (Load Projects → Select Project → Overview), kept
+below for reference — all still accurate, none revisited this session:**
 
 - **`project.ValidationError` duplicates `auth.ValidationError`'s shape
   instead of importing it.** Project field validation (name/description
@@ -341,46 +458,59 @@ see git history for that version of this file if needed.)
 
 ## Known Issues / Blockers
 
-- **Presence, Tasks, Git activity, and Project activity are not
-  implemented** (by design — see "What was deliberately not built"). The
-  Overview screen is structurally complete per `docs/UX.md` but several of
-  its sections are honest placeholders, not real features. This is the
-  most visible gap to close next, but each piece is its own
-  `docs/ARCHITECTURE.md` section and shouldn't be rushed into this slice.
+- **"Removing a Project Member Experience" is not implemented** (by
+  explicit project-owner choice this checkpoint — see "Scope decision"
+  above). Owners/Admins currently have no way to remove a member through
+  the Client. This is the natural next piece if member management is
+  wanted.
+- **Presence, Tasks, Git activity, and Project activity are still not
+  implemented** (unchanged from the previous checkpoint). Members and
+  Overview are both structurally complete per `docs/UX.md` but several
+  sections in each are honest placeholders, not real features.
 - **Join Project (invite links/codes) is not implemented.** Only creating
-  your own project gets you into one right now.
-- Session token is still not persisted across app restarts (unchanged from
-  the previous checkpoint — Tauri native layer / SQLite / OS credential
-  storage work is still deferred as one unit).
+  your own project gets you into one right now — which also means it was
+  not possible to verify the Members screen with more than one member in
+  it this checkpoint (every project in the live test database has exactly
+  one member, its creator). The single-member case was verified live; the
+  multi-member rendering path (list of >1 row, each independently
+  clickable) was not exercised against a real multi-member project, only
+  reasoned about from the code (it's a plain `.map()` over
+  `detail.members`, nothing member-count-dependent in the logic) — worth a
+  real check once Join Project or a second membership path exists.
+- Session token is still not persisted across app restarts (unchanged,
+  deferred as before).
 - No automated test suite exists for the client (still unaddressed, same
-  gap noted in both previous checkpoints).
-- The live-server verification in this session reused an already-running
-  container + Postgres volume from the project owner's own earlier
-  verification, and now has two real test accounts / two real projects
-  sitting in that database (`korn_<timestamp>` / `meran_<timestamp>`,
-  "KMJG Hub Development" / "Game Center"). Harmless for a dev database, but
-  worth knowing it's not a clean slate if someone inspects that Postgres
-  volume directly.
+  gap noted in every previous checkpoint).
+- The dev Postgres volume still has the same test accounts/projects noted
+  in the previous checkpoint's handoff (`korn_<timestamp>` /
+  `meran_<timestamp>`, "KMJG Hub Development" / "Game Center") — untouched
+  this session, no new data added.
 
 ## Next Steps
 
-1. Pick one of the deferred pieces to build next: **Members section**
-   (`docs/UX.md` "Members Experience" — a full screen beyond Overview's
-   summary list, with presence/work-status once that exists), **Presence**
-   (`docs/ARCHITECTURE.md` "Presence and Work Status Architecture" — needs
-   the WebSocket real-time layer, which nothing in the codebase has yet),
-   or **Tasks** (`docs/ARCHITECTURE.md` "Task Architecture" — the most
-   self-contained of the three, doesn't need WebSocket to be useful since
-   it's HTTP-API-shaped like Projects was). Confirm with the project owner
-   before starting — this PROGRESS.md shouldn't be the thing deciding
-   product sequencing.
-2. Project Chat is the other obvious next vertical slice
-   (`docs/UX.md`/`docs/ARCHITECTURE.md` "Project Chat" / "Messaging and
-   Real-Time Data Architecture") — also needs the WebSocket layer for the
-   real-time half, though message history retrieval could be HTTP-only
-   first.
+1. **Removing a Project Member Experience** (`docs/UX.md`) is the most
+   direct follow-on to this checkpoint — the Members screen is already
+   right there to add it to. Needs: `DELETE /api/v1/projects/{id}/members/
+   {userId}` (or similar) with server-side role authorization (Owner can
+   remove Admin/Member; Admin can remove Member only; nobody can remove the
+   Owner; no self-removal — that's "Leaving a Project," a different UX
+   section), confirmation UI, and correct 403/404 handling. The "also
+   remove repository access" checkbox from the UX mockup should stay
+   omitted until Git integration exists (there's never anything to remove
+   access to yet).
+2. Otherwise, pick one of: **Presence** (`docs/ARCHITECTURE.md` "Presence
+   and Work Status Architecture" — needs the WebSocket real-time layer,
+   which nothing in the codebase has yet, and unlocks the presence
+   indicators both Overview and Members are currently honest about
+   lacking), **Tasks** (`docs/ARCHITECTURE.md` "Task Architecture" — the
+   most self-contained of the remaining pieces, doesn't need WebSocket to
+   be useful since it's HTTP-API-shaped like Projects was), or **Project
+   Chat** (also needs the WebSocket layer for its real-time half, though
+   message history retrieval could be HTTP-only first). Confirm with the
+   project owner before starting — this PROGRESS.md shouldn't be the thing
+   deciding product sequencing.
 3. Session persistence (SQLite via Tauri + OS credential storage) is still
    deferred — bundle it with "Saved Servers" persistence when the Tauri
-   native layer work starts, as noted in both previous checkpoints. Getting
+   native layer work starts, as noted in every previous checkpoint. Getting
    this done would also let `GET /api/v1/auth/session` finally get used by
-   the Client (it's been sitting ready since the previous checkpoint).
+   the Client (it's been sitting ready since the Login checkpoint).

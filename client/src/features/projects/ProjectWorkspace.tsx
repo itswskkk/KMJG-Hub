@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ApiError, ProjectDetail, getProject, isSessionExpired } from "../../lib/apiClient";
 import Overview from "./Overview";
+import Members from "./Members";
 import "./ProjectWorkspace.css";
 
 interface ProjectWorkspaceProps {
@@ -11,20 +12,24 @@ interface ProjectWorkspaceProps {
   onSessionExpired: () => void;
 }
 
-// Sidebar navigation per docs/UX.md "Project Workspace". Only Overview is
-// implemented this checkpoint; the rest are real Project Workspace sections
-// from the same UX spec, shown but disabled rather than omitted, the same
-// treatment as the disabled GitHub login option.
-const SIDEBAR_ITEMS = ["Overview", "Chat", "Tasks", "Git", "Files", "Members", "Developer Tools"];
+type Section = "overview" | "members";
+
+// Sidebar navigation per docs/UX.md "Project Workspace". Overview and
+// Members are implemented this checkpoint; the rest are real Project
+// Workspace sections from the same UX spec, shown but disabled rather than
+// omitted, the same treatment as the disabled GitHub login option.
+const DISABLED_SIDEBAR_ITEMS = ["Chat", "Tasks", "Git", "Files", "Developer Tools"];
 
 function ProjectWorkspace({ serverUrl, token, projectId, onBackToServerHome, onSessionExpired }: ProjectWorkspaceProps) {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [section, setSection] = useState<Section>("overview");
 
   useEffect(() => {
     let cancelled = false;
     setDetail(null);
     setError(null);
+    setSection("overview");
 
     getProject(serverUrl, token, projectId)
       .then((d) => {
@@ -59,15 +64,33 @@ function ProjectWorkspace({ serverUrl, token, projectId, onBackToServerHome, onS
         <h1 className="project-workspace__title">{detail ? detail.name : "Loading..."}</h1>
 
         <nav className="project-workspace__nav">
-          {SIDEBAR_ITEMS.map((item) => (
+          <button
+            type="button"
+            className={
+              section === "overview"
+                ? "project-workspace__nav-item project-workspace__nav-item--active"
+                : "project-workspace__nav-item"
+            }
+            onClick={() => setSection("overview")}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            className={
+              section === "members"
+                ? "project-workspace__nav-item project-workspace__nav-item--active"
+                : "project-workspace__nav-item"
+            }
+            onClick={() => setSection("members")}
+          >
+            Members
+          </button>
+          {DISABLED_SIDEBAR_ITEMS.map((item) => (
             <span
               key={item}
-              className={
-                item === "Overview"
-                  ? "project-workspace__nav-item project-workspace__nav-item--active"
-                  : "project-workspace__nav-item project-workspace__nav-item--disabled"
-              }
-              title={item === "Overview" ? undefined : "Not available yet"}
+              className="project-workspace__nav-item project-workspace__nav-item--disabled"
+              title="Not available yet"
             >
               {item}
             </span>
@@ -82,7 +105,8 @@ function ProjectWorkspace({ serverUrl, token, projectId, onBackToServerHome, onS
           </p>
         )}
         {!error && !detail && <p className="project-workspace__loading">Loading project...</p>}
-        {detail && <Overview detail={detail} />}
+        {detail && section === "overview" && <Overview detail={detail} onViewMembers={() => setSection("members")} />}
+        {detail && section === "members" && <Members detail={detail} />}
       </main>
     </div>
   );

@@ -41,11 +41,29 @@
   padding: 0.4rem 0.6rem;
   border-radius: 6px;
   font-size: 0.9rem;
+  text-align: left;
+  width: 100%;
+  box-sizing: border-box;
+  background: none;
+  border: none;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+button.project-workspace__nav-item:hover {
+  background: rgba(128, 128, 128, 0.12);
+  border-color: transparent;
 }
 
 .project-workspace__nav-item--active {
   background: rgba(74, 125, 252, 0.15);
   font-weight: 600;
+}
+
+button.project-workspace__nav-item--active:hover {
+  background: rgba(74, 125, 252, 0.2);
 }
 
 .project-workspace__nav-item--disabled {
