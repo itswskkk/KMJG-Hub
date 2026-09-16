@@ -1,3 +1,24 @@
+## Resume Here
+
+Last verified commit: `88f1cbe` (`feat: add project members view`)
+Branch: `main`
+Working tree after checkpoint: clean
+
+Current implementation state:
+- Connect Server: complete
+- Local Auth / Sessions: complete
+- Projects / Overview: complete
+- Members view-only: complete
+
+No work is currently in progress.
+
+Next checkpoint must be selected by the project owner.
+Current candidates:
+- Presence / WebSocket
+- Tasks
+- Project Chat
+- Member management / Remove Member
+
 # KMJG Hub — Implementation Progress
 
 This file is a handoff/state snapshot for whichever agent (Codex, Claude Code,
@@ -224,7 +245,8 @@ backend เท่าที่จำเป็น" / "อย่าขยายscop
 
 ## In Progress
 
-- Nothing in-flight. This checkpoint is complete and awaiting review.
+- Nothing in-flight.
+- Members checkpoint has been reviewed, committed, and pushed.
 
 ## Files Changed
 
@@ -347,13 +369,8 @@ root `.gitignore`, `client/src/features/auth/`, original `apiClient.ts`.
       `GET /api/v1/auth/session` → real `401 invalid_session` — confirms
       the session-invalid-vs-invalid-credentials fix works end-to-end
       against the real session table, not just the in-memory fakes.
-  - **How this became possible this session:** this sandbox now has a
-    `docker` binary, but the invoking user account isn't in the `docker`
-    group and has no passwordless `sudo` — direct `docker` calls fail with
-    a permission error. `sg docker -c "<command>"` (switch group, no
-    password needed) works and was used for every Docker/`curl` command
-    above. Worth remembering if a future session in this same sandbox hits
-    the same "docker: permission denied" wall.
+  - **Docker environment:** Docker is installed and the current user has
+    Docker group access. `docker ps` and `docker compose` work without `sudo`.
   - The `.env` file and running containers were already present at the
     start of this checkpoint (the project owner had independently run
     `docker compose up --build` and verified the Connect Server → Login
