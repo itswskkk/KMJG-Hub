@@ -1,0 +1,46 @@
+.connect-server {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  box-sizing: border-box;
+}
+
+.connect-server__card {
+  width: 100%;
+  max-width: 420px;
+  text-align: center;
+}
+
+.connect-server__subtitle {
+  margin: 0.5rem 0 2rem;
+  opacity: 0.8;
+}
+
+.connect-server__form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  text-align: left;
+}
+
+.connect-server__label {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.connect-server__form input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.connect-server__error {
+  margin: -0.25rem 0 0;
+  color: #d33;
+  font-size: 0.875rem;
+}
+
+.connect-server__form button {
+  margin-top: 0.5rem;
+}
