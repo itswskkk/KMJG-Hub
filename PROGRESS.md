@@ -1,16 +1,17 @@
 ## Resume Here
 
-Last verified commit: `88f1cbe` (`feat: add project members view`)
-Branch: `main`
-Working tree after this checkpoint: **dirty, uncommitted** (implementation complete and verified;
-committing/pushing was explicitly out of scope for this session — see Git status below).
+Last verified commit: `bf29236` (`fix: harden realtime presence lifecycle`)
+Branch: `main`, pushed to `origin/main`.
+Working tree: clean as of this PROGRESS.md commit.
 
 Current implementation state:
 - Connect Server: complete
 - Local Auth / Sessions: complete
 - Projects / Overview: complete
 - Members view-only: complete, now with real presence dots
-- **Presence / Authenticated WebSocket Foundation: complete (this checkpoint)**
+- **Presence / Authenticated WebSocket Foundation: complete (commit `ce108ac`)**
+- **Presence Freshness / Server Lifecycle Fix: complete, committed (commit
+  `bf29236`) — see "Checkpoint 4 addendum" below**
 
 No work is currently in progress.
 
@@ -145,9 +146,12 @@ Current Branch, and Current Task are explicitly separate concerns and are
   starts a background goroutine that calls `hub.Sweep` every 60s using
   `authService.SessionActive` (the bounded-delay fallback for session
   expiry, which — unlike logout — the Server has no single event to react
-  to), and `App.Close()` now calls `hub.Shutdown()` before closing the
-  database pool so no WebSocket connection or goroutine outlives Server
-  shutdown.
+  to), and `App.Close()` closes every open WebSocket connection before
+  closing the database pool. **This checkpoint's original `Close()` had a
+  lifecycle gap fixed in the follow-up session below — see "Checkpoint 4
+  addendum" for the corrected design (App now owns its own cancellable
+  context and waits for its background goroutines before releasing the
+  pool).**
 
 **WebSocket authentication protocol:** the Client opens `GET /api/v1/ws`
 unauthenticated, then its **first message** must be
@@ -191,11 +195,12 @@ bounds every frame (including the auth message) to 4096 bytes.
   a token the Server has already rejected.
 - **`src/features/presence/PresenceProvider.tsx`** — new. React Context
   provider owning the single authenticated real-time connection for the
-  whole authenticated app session. Exposes `useProjectPresence(projectId)`
-  returning `{ status, isOnline(userId) }`, where `isOnline` returns
-  `undefined` (never a guessed `false`) whenever the connection isn't
-  currently `"open"` — the mechanism behind "don't present stale/fake
-  presence while disconnected."
+  whole authenticated app session. Originally exposed
+  `useProjectPresence(projectId)` returning `{ status, isOnline(userId) }`,
+  gated purely on the connection being `"open"`. **This gating had a
+  reconnect staleness gap, fixed in the follow-up session below — the hook
+  now also returns a per-Project `ready` flag, and `isOnline` is gated on
+  that instead of on `status` alone; see "Checkpoint 4 addendum."**
 - **`src/App.tsx`** — restructured so `<PresenceProvider>` wraps the whole
   screen switch at a single, stable position, with `serverUrl`/`token`
   derived from the current screen (`null` before authentication). This is
@@ -207,22 +212,136 @@ bounds every frame (including the auth message) to 4096 bytes.
   Server-rejected session back to that Server's Login screen, the same way
   an HTTP 401 already does elsewhere in the app.
 - **`src/features/projects/Overview.tsx`** — the "Online presence is not
-  implemented yet" note is gone. When the real-time connection is `"open"`,
-  Overview shows the real `Members Online: N / M` count
-  (`docs/UX.md` "Project Overview": "Members Online \n 3 / 4"); while
-  connecting/reconnecting, it shows the member count plus a "Connecting to
-  real-time presence…" note instead of a stale or fabricated count.
+  implemented yet" note is gone. Originally gated the real `Members Online:
+  N / M` count (`docs/UX.md` "Project Overview": "Members Online \n 3 / 4")
+  purely on the real-time connection being `"open"`, falling back to the
+  member count + a "Connecting to real-time presence…" note otherwise.
+  **That gating had a reconnect-staleness bug, fixed in the follow-up
+  session below — see "Checkpoint 4 addendum."**
 - **`src/features/projects/Members.tsx`** + **`Members.css`** — each member
-  row now shows a real presence dot (green `●` online / hollow `○`
-  offline) once the connection is `"open"`; before that, no dot is drawn
-  and a neutral note explains why. The Member Detail overlay's blanket
-  "Presence, work status, current branch, and current task are not
-  implemented yet" note was narrowed to "Work status, current branch, and
-  current task are not implemented yet" (Presence itself is real now) and
-  gained an explicit `"● Online"` / `"○ Offline"` /
-  `"Presence unknown (reconnecting…)"` line. The four quick actions (Chat,
-  Send File, View Branch, View Current Task) remain disabled — untouched,
-  still out of scope.
+  row shows a real presence dot (green `●` online / hollow `○` offline);
+  originally gated on the connection being `"open"`, **since corrected to
+  gate on fresh per-Project presence — see "Checkpoint 4 addendum" below**.
+  Before presence is known, no dot is drawn and a neutral note explains
+  why. The Member Detail overlay's blanket "Presence, work status, current
+  branch, and current task are not implemented yet" note was narrowed to
+  "Work status, current branch, and current task are not implemented yet"
+  (Presence itself is real now) and gained an explicit `"● Online"` /
+  `"○ Offline"` / `"Presence unknown"` line (wording also adjusted in the
+  follow-up session — see below). The four quick actions (Chat, Send File,
+  View Branch, View Current Task) remain disabled — untouched, still out of
+  scope.
+
+### Checkpoint 4 addendum: Presence Freshness / Server Lifecycle Fix (commit `bf29236`)
+
+**Scope:** a follow-up review of the Presence / Authenticated WebSocket
+Foundation checkpoint above found and fixed two confirmed bugs — one
+server-side (App/Hub background-goroutine shutdown ordering), one
+client-side (stale presence surviving a reconnect). No Tasks/Chat/Work
+Status/Git/invitations work was touched; scope was deliberately kept to
+these two fixes.
+
+**Server — background-goroutine lifecycle fix:**
+
+`App.New(ctx, cfg)` started the session-sweep goroutine and the
+`realtime.Hub` using the `ctx` passed in from `cmd/server/main.go` (the
+process's signal-derived context), and `App.Close()` called
+`Realtime.Shutdown()` + `Pool.Close()` without stopping or waiting for
+those goroutines first. On a non-signal shutdown path (e.g. the HTTP server
+failing to start), that `ctx` is never cancelled, and `main.go`'s
+`defer kmjgApp.Close()` runs *before* `defer stop()` regardless — so
+`Close()` could not rely on `ctx` being done, and could close the database
+pool while `runSessionSweep` or the Hub's internal presence-callback
+dispatcher still had live queries in flight.
+
+Fixed by giving `App` its own child context it fully owns:
+- `App` now derives `appCtx, cancel := context.WithCancel(ctx)` in `New`,
+  and uses `appCtx` (not the raw `ctx`) for `realtime.NewHub` and the
+  session-sweep goroutine.
+- `App` gained `cancel context.CancelFunc`, `wg sync.WaitGroup` (tracks the
+  sweep goroutine), and `closeOnce sync.Once` (idempotency).
+- `realtime.Hub` gained a `Wait()` method, backed by a `done` channel closed
+  when its internal transition-dispatch goroutine exits, so a caller that
+  cancels the Hub's context can also confirm that goroutine has actually
+  stopped (not just been asked to).
+- `App.Close()` is now: `cancel()` → `Realtime.Shutdown()` → `wg.Wait()` →
+  `Realtime.Wait()` → `Pool.Close()` — every App-owned background goroutine
+  is stopped *and joined* before the pool closes, unconditionally, and
+  `Close()` is safe to call more than once.
+
+Files: `server/internal/app/app.go`, `server/internal/realtime/hub.go`.
+Tests added: `server/internal/app/app_test.go` (new —
+`TestRunSessionSweepExitsOnContextCancellation`, using a fake, DB-free
+`session.Repository`) and `server/internal/realtime/hub_test.go`
+(`TestWaitBlocksUntilTransitionDispatcherExits`). No DB-backed test covers
+the full `New`→`Close` path — the repo has no Postgres test harness — so
+these two tests isolate and cover the exact synchronization primitives
+`Close` depends on instead.
+
+Validation: `gofmt -l .` clean; `go build ./...`, `go test ./...`,
+`go test -race ./...`, `go vet ./...` all clean; `git diff --check` clean.
+
+**Client — presence freshness-after-reconnect fix:**
+
+`RealtimeClient` marks the connection `"open"` on the Server's `"connected"`
+event, which always arrives *before* that connection's per-Project
+`presence.snapshot` (the Server enqueues them in that order). Meanwhile
+`PresenceProvider` never cleared its `projects` presence cache across a
+reconnect. Net effect: right after a reconnect, `status` was already
+`"open"` but `Overview`'s `presence.status === "open" ? count : null` logic
+had no way to distinguish "fresh data" from "stale-from-before-the-drop" or
+"no data yet" — briefly showing a wrong "Members Online: 0/N" (or a
+lingering stale count) until the real snapshot for that Project arrived.
+
+Fixed with a per-Project readiness signal rather than overloading
+Online/Offline:
+- `PresenceState` gained `readyProjects: Record<projectId, boolean>`, set
+  `true` **only** inside the `presence.snapshot` handler for that Project —
+  never by `"connected"` and never by a `presence.updated` event.
+- `onConnectionStatusChange` now clears both `projects` and `readyProjects`
+  whenever the status moves away from `"open"` (reconnect or terminal
+  close), so a previous connection's presence can never leak into whatever
+  connection replaces it. Normal navigation with the same live connection
+  triggers no status change, so a valid snapshot is never discarded by this.
+- `useProjectPresence` now returns `ready = status === "open" &&
+  readyProjects[projectId]` alongside `status`/`isOnline`; `isOnline` is
+  gated on `ready`, not on `status` alone.
+- `Overview.tsx` gates `onlineCount` on `presence.ready` (was
+  `presence.status === "open"`) — no more "0/N" merely because the socket
+  reopened before the Project's own snapshot arrived.
+- `Members.tsx`'s "Connecting to real-time presence…" note and
+  `PresenceDot` now gate on `presence.ready`; `MemberDetail` always reads
+  `presence.isOnline(...)` directly (it already returns `undefined` unless
+  `ready`) and shows "Presence unknown" (text simplified — it's no longer
+  only shown while reconnecting; it now also covers "open but not yet
+  synced").
+
+Reviewed (no change made): `RealtimeClient`'s blanket "any `error` envelope
+⇒ auth error, stop reconnecting" handling. Confirmed via the Go server code
+that `writeWebSocketError` is only ever called with code `"unauthorized"`,
+only from pre-registration `authenticateWebSocket` — the current protocol
+cannot emit a non-auth `"error"`, so the existing handling is safe as-is.
+
+Files: `client/src/features/presence/PresenceProvider.tsx`,
+`client/src/features/projects/Overview.tsx`,
+`client/src/features/projects/Members.tsx`. No server files, no
+`realtimeClient.ts` changes.
+
+Tests added: none. The `client` package has no test runner configured at
+all (no `test` script, no Vitest/Jest, no `@testing-library/*`) — adding
+one was judged out of scope for this focused fix. Verified instead by code
+inspection against the four required scenarios (old snapshot not exposed
+after reconnect; `"connected"` before a fresh snapshot exposes nothing;
+a fresh snapshot restores known presence; Overview never turns Unknown into
+"0 online") plus `npm run build` (`tsc && vite build`), which passed clean.
+This client-side automated-test gap is the same pre-existing gap already
+tracked under "Known Issues / Blockers" below.
+
+Validation: `npm run build` clean; `git diff --check` clean; no Go tests
+run for this half (no server/protocol files changed).
+
+**Committed and pushed** as `bf29236` (`fix: harden realtime presence
+lifecycle`) on `main`; see "Resume Here" / Git status.
 
 ## Completed (previous checkpoints)
 
@@ -424,10 +543,10 @@ backend เท่าที่จำเป็น" / "อย่าขยายscop
 ## In Progress
 
 - Nothing in-flight.
-- **This session's checkpoint (Presence / Authenticated WebSocket
-  Foundation) is implemented and fully verified but intentionally left
-  uncommitted**, per explicit instruction for this session. See "Git
-  status" in the handoff summary / commit it yourself when ready.
+- **The Presence / Authenticated WebSocket Foundation checkpoint (commit
+  `ce108ac`) and the Checkpoint 4 addendum (Presence Freshness / Server
+  Lifecycle Fix, commit `bf29236`) are both implemented, fully verified,
+  committed, and pushed to `origin/main`.**
 
 ## Files Changed
 
@@ -472,6 +591,32 @@ Client, modified:
 No database migration. No changes to `docker-compose.yml`, `.env.example`,
 or any file outside `server/` and `client/src/`.
 
+**Checkpoint 4 addendum (Presence Freshness / Server Lifecycle Fix, commit
+`bf29236`):**
+
+Server, new:
+- `server/internal/app/app_test.go` —
+  `TestRunSessionSweepExitsOnContextCancellation`.
+
+Server, modified:
+- `server/internal/app/app.go` — App-owned `appCtx`/`cancel`, `wg`,
+  `closeOnce`; corrected `Close()` ordering (see addendum above). Note this
+  is on top of, and supersedes the lifecycle description under this same
+  file in the checkpoint entry above.
+- `server/internal/realtime/hub.go` — added `done` channel + `Wait()`.
+- `server/internal/realtime/hub_test.go` —
+  `TestWaitBlocksUntilTransitionDispatcherExits`.
+
+Client, modified:
+- `client/src/features/presence/PresenceProvider.tsx` — `readyProjects`,
+  cache invalidation on disconnect, `ready` on `ProjectPresence`.
+- `client/src/features/projects/Overview.tsx` — gate on `presence.ready`.
+- `client/src/features/projects/Members.tsx` — gate on `presence.ready`;
+  simplified unknown-presence wording.
+
+No database migration, no `client/src/lib/realtimeClient.ts` change, no
+other files touched.
+
 **Previous checkpoint (Members) — unchanged this session:**
 - `client/src/features/projects/Members.tsx`, `Members.css` — original
   (view-only) version; see this checkpoint's diff on top of it above.
@@ -504,6 +649,15 @@ root `.gitignore`, `client/src/features/auth/`, original `apiClient.ts`.
 
 ## Tests / Build Checks (most recent)
 
+- **Checkpoint 4 addendum (Presence Freshness / Server Lifecycle Fix, this
+  session):** see the addendum section above for full detail. Summary —
+  server half: `gofmt -l .`, `go build ./...`, `go test ./...`,
+  `go test -race ./...`, `go vet ./...` all clean; new tests
+  `app_test.TestRunSessionSweepExitsOnContextCancellation` and
+  `realtime_test.TestWaitBlocksUntilTransitionDispatcherExits` both pass.
+  Client half: `npm run build` (`tsc && vite build`) clean; no automated
+  client tests exist to run (see Known Issues). `git diff --check` clean
+  for both halves. No commit/push.
 - **This checkpoint (Presence / Authenticated WebSocket Foundation):**
   - `go build ./...`, `go vet ./...`, `gofmt -l .` — all clean, whole
     server module.
@@ -663,6 +817,36 @@ root `.gitignore`, `client/src/features/auth/`, original `apiClient.ts`.
   validation/logout coverage.
 
 ## Implementation Decisions Made
+
+**Checkpoint 4 addendum (Presence Freshness / Server Lifecycle Fix, this
+session):**
+
+- **`App` owns a private child context (`appCtx`/`cancel`) rather than
+  relying on the `ctx` passed into `New`.** That `ctx` is the process's
+  signal-derived context (`signal.NotifyContext` in `main.go`), which is
+  never cancelled on a non-signal shutdown path, and `main.go`'s own defer
+  ordering (`kmjgApp.Close()` runs before `stop()`) can't be relied on
+  either. Giving `App` its own cancel func makes `Close()` correct
+  independent of both.
+- **`Close()` waits for background goroutines (`wg.Wait()` /
+  `Realtime.Wait()`) instead of just cancelling and returning.** Cancelling
+  a context only *asks* a goroutine to stop; only joining it confirms it
+  has. Without the join, `Pool.Close()` could still race an in-flight query
+  from `runSessionSweep` or the Hub's transition dispatcher.
+- **Per-Project `ready` flag on the client, not a "last known good" cache
+  or a synthetic third Online/Offline/Unknown enum value.** The
+  requirement was explicit: never overload the Online/Offline booleans to
+  represent "unknown." A separate boolean keyed by whether *this specific
+  Project's* `presence.snapshot` has landed on the *current* connection is
+  the minimal signal that answers "can `isOnline` be trusted right now,"
+  without touching the wire protocol or the snapshot/update event shapes.
+- **Clearing `projects`/`readyProjects` is keyed off the connection-status
+  transition, not off every render or every reconnect *attempt*.** The
+  requirement that normal navigation on the same live connection must not
+  discard a valid snapshot ruled out clearing on any broader trigger;
+  `RealtimeClient` only ever reports `"reconnecting"`/`"closed"` when the
+  underlying socket actually drops, so gating the clear on that transition
+  is both sufficient and exactly scoped to real connectivity loss.
 
 **This checkpoint (Presence / Authenticated WebSocket Foundation):**
 
