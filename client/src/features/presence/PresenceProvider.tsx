@@ -9,11 +9,21 @@ import {
 
 interface PresenceState {
   connectionStatus: ConnectionStatus;
-  // projectId -> userId -> online
+  // projectId -> userId -> online. Only ever holds data delivered on the
+  // *current* connection generation — cleared whenever the connection stops
+  // being open (see the onConnectionStatusChange handler below), so a
+  // previous connection's presence can never be read once a new one takes
+  // over, even before the new connection's own snapshot arrives.
   projects: Record<string, Record<string, boolean>>;
+  // projectId -> true once a presence.snapshot for that Project has been
+  // received on the *current* connection generation. This is the sole
+  // authority for "is this Project's presence known" — receiving
+  // "connected", or a presence.updated event with no prior snapshot, must
+  // never set this (see useProjectPresence's `ready`).
+  readyProjects: Record<string, boolean>;
 }
 
-const initialState: PresenceState = { connectionStatus: "closed", projects: {} };
+const initialState: PresenceState = { connectionStatus: "closed", projects: {}, readyProjects: {} };
 
 const PresenceStateContext = createContext<PresenceState>(initialState);
 
@@ -52,7 +62,18 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
 
     const client = new RealtimeClient(toWebSocketUrl(serverUrl), token, {
       onConnectionStatusChange: (connectionStatus) => {
-        setState((prev) => ({ ...prev, connectionStatus }));
+        setState((prev) =>
+          connectionStatus === "open"
+            ? { ...prev, connectionStatus }
+            : // The connection just stopped being open (or has never been
+              // open yet): any presence already known belongs to a
+              // connection that is no longer live. Drop it rather than
+              // letting it survive into whatever connection comes next —
+              // that next connection's own "connected" must not make this
+              // stale (or, for a brand-new project, absent) data look
+              // current again.
+              { connectionStatus, projects: {}, readyProjects: {} },
+        );
       },
       onSnapshot: (data: PresenceSnapshotEvent) => {
         setState((prev) => ({
@@ -61,6 +82,7 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
             ...prev.projects,
             [data.project_id]: Object.fromEntries(data.members.map((m) => [m.user_id, m.online])),
           },
+          readyProjects: { ...prev.readyProjects, [data.project_id]: true },
         }));
       },
       onUpdated: (data: PresenceUpdatedEvent) => {
@@ -86,20 +108,30 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
 }
 
 export interface ProjectPresence {
-  /** "open" when live presence is currently known; otherwise unknown/stale. */
+  /** The underlying real-time connection's status. Note this alone does not
+   * mean this Project's presence is known — see `ready`: "open" only means
+   * *a* connection is live, not that it has delivered *this* Project's
+   * presence.snapshot yet (e.g. right after "connected", or right after
+   * reconnecting). */
   status: ConnectionStatus;
+  /** True once a fresh presence.snapshot for this Project has been received
+   * on the current connection. Members must be presented as Unknown (never
+   * as Offline, and never using data from a previous connection) while this
+   * is false. */
+  ready: boolean;
   /** Returns undefined when this member's presence is not currently known
-   * (no snapshot received yet, or the real-time connection is not open) —
-   * callers must not treat undefined as Offline. */
+   * — whenever `ready` is false — callers must not treat undefined as
+   * Offline. */
   isOnline: (userId: string) => boolean | undefined;
 }
 
 /** Reads real-time presence for one Project from the nearest PresenceProvider. */
 export function useProjectPresence(projectId: string): ProjectPresence {
   const state = useContext(PresenceStateContext);
+  const ready = state.connectionStatus === "open" && Boolean(state.readyProjects[projectId]);
   return {
     status: state.connectionStatus,
-    isOnline: (userId: string) =>
-      state.connectionStatus === "open" ? state.projects[projectId]?.[userId] : undefined,
+    ready,
+    isOnline: (userId: string) => (ready ? state.projects[projectId]?.[userId] : undefined),
   };
 }

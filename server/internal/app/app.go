@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -36,6 +37,22 @@ type App struct {
 	Pool     *pgxpool.Pool
 	Router   http.Handler
 	Realtime *realtime.Hub
+
+	// cancel stops every background goroutine App started (or that started
+	// goroutines on App's behalf, such as the Hub's internal transition
+	// dispatcher), independent of whatever context Close is eventually
+	// called from. App owns this rather than relying on the ctx passed to
+	// New: that ctx is the Server's process-lifetime signal context, which
+	// on a non-signal shutdown path (e.g. the HTTP server failing to start)
+	// is never cancelled, so cancelling it can't be relied on to stop these
+	// goroutines before Close releases the resources they use.
+	cancel context.CancelFunc
+	// wg tracks goroutines App itself starts directly (currently just
+	// runSessionSweep). Close waits on it before releasing Pool.
+	wg sync.WaitGroup
+	// closeOnce makes Close idempotent: callers (main.go's defer, plus any
+	// caller of App.Close on an error path) may call it more than once.
+	closeOnce sync.Once
 }
 
 // New connects to PostgreSQL, applies pending migrations, and wires the
@@ -61,12 +78,15 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Repo: postgres.NewProjectRepository(pool),
 	}
 
-	hub := realtime.NewHub(ctx)
+	// appCtx is App's own child of ctx: it lets Close stop App's background
+	// work unconditionally, rather than depending on ctx ever being
+	// cancelled itself (see App.cancel).
+	appCtx, cancel := context.WithCancel(ctx)
+
+	hub := realtime.NewHub(appCtx)
 	presenceService := &presence.Service{Membership: projectService, Hub: hub}
 	hub.OnUserOnline = presenceService.HandleUserOnline
 	hub.OnUserOffline = presenceService.HandleUserOffline
-
-	go runSessionSweep(ctx, hub, authService)
 
 	handlers := &httpapi.Handlers{
 		Auth:     authService,
@@ -76,7 +96,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	router := httpapi.NewRouter(handlers, cfg.AllowedOrigins)
 
-	return &App{Pool: pool, Router: router, Realtime: hub}, nil
+	a := &App{Pool: pool, Router: router, Realtime: hub, cancel: cancel}
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		runSessionSweep(appCtx, hub, authService)
+	}()
+
+	return a, nil
 }
 
 // runSessionSweep periodically closes any open WebSocket connection whose
@@ -100,7 +127,20 @@ func runSessionSweep(ctx context.Context, hub *realtime.Hub, authService *auth.S
 // Close releases the application's resources, including closing every open
 // WebSocket connection so no goroutine or Client is left dangling after
 // shutdown (docs/ARCHITECTURE.md's expectation of clean Server shutdown).
+//
+// It stops and waits for every App-owned background goroutine — the session
+// sweep and the Hub's internal transition dispatcher — before releasing
+// Pool, so neither can be caught mid-query against a Pool that has already
+// been closed. Close is idempotent and safe to call more than once (e.g.
+// cmd/server/main.go's defer ordering relative to its signal context's stop
+// func is not guaranteed, so Close cannot assume ctx is already cancelled
+// when it runs).
 func (a *App) Close() {
-	a.Realtime.Shutdown()
-	a.Pool.Close()
+	a.closeOnce.Do(func() {
+		a.cancel()
+		a.Realtime.Shutdown()
+		a.wg.Wait()
+		a.Realtime.Wait()
+		a.Pool.Close()
+	})
 }

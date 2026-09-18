@@ -83,6 +83,14 @@ type Hub struct {
 	transitionsMu  sync.Mutex
 	pendingByUser  map[string]bool
 	transitionWake chan struct{}
+
+	// done is closed when runTransitions returns (i.e. once ctx is done and
+	// any in-flight dispatch has finished). Wait blocks on it so a caller
+	// that owns ctx's cancellation (App.Close) can be sure no
+	// OnUserOnline/OnUserOffline callback is still running before it
+	// releases resources those callbacks depend on, such as the database
+	// pool.
+	done chan struct{}
 }
 
 // NewHub constructs an empty Hub. ctx is the Server's long-lived lifetime
@@ -97,9 +105,17 @@ func NewHub(ctx context.Context) *Hub {
 		byUser:         make(map[string]map[*Client]struct{}),
 		pendingByUser:  make(map[string]bool),
 		transitionWake: make(chan struct{}, 1),
+		done:           make(chan struct{}),
 	}
 	go h.runTransitions()
 	return h
+}
+
+// Wait blocks until the Hub's internal transition-dispatch goroutine has
+// exited (see done). Safe to call any number of times, including
+// concurrently, since it only ever reads a closed channel.
+func (h *Hub) Wait() {
+	<-h.done
 }
 
 // Register adds c to the Hub. If this is userID's first live connection,
@@ -186,6 +202,8 @@ func (h *Hub) recordTransition(userID string, online bool) {
 // one entry per user can ever be in flight at a time). Callbacks run with
 // no lock held.
 func (h *Hub) runTransitions() {
+	defer close(h.done)
+
 	for {
 		h.transitionsMu.Lock()
 		pending := h.pendingByUser

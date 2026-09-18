@@ -569,6 +569,31 @@ func TestShutdownClosesEveryConnection(t *testing.T) {
 	waitFor(t, closed2, "expected connection 2 to be closed on shutdown")
 }
 
+// TestWaitBlocksUntilTransitionDispatcherExits exercises the synchronization
+// App.Close relies on: cancelling the ctx given to NewHub must eventually
+// unblock Wait, and Wait must not return early (before that goroutine has
+// actually exited) or hang forever after it has.
+func TestWaitBlocksUntilTransitionDispatcherExits(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	hub := realtime.NewHub(ctx)
+
+	waitDone := make(chan struct{})
+	go func() {
+		hub.Wait()
+		close(waitDone)
+	}()
+
+	assertNoSignal(t, waitDone, "Wait returned before ctx was cancelled")
+
+	cancel()
+
+	waitFor(t, waitDone, "Wait did not return after ctx was cancelled")
+
+	// Wait must remain safe (non-blocking, non-panicking) to call again
+	// after the dispatcher has already exited.
+	hub.Wait()
+}
+
 func TestEnvelopeRoundTrip(t *testing.T) {
 	env, err := realtime.NewEnvelope("presence.updated", map[string]any{
 		"project_id": "p1",

@@ -21,10 +21,9 @@ interface OverviewProps {
  */
 function Overview({ detail, onViewMembers }: OverviewProps) {
   const presence = useProjectPresence(detail.id);
-  const onlineCount =
-    presence.status === "open"
-      ? detail.members.filter((m) => presence.isOnline(m.id) === true).length
-      : null;
+  const onlineCount = presence.ready
+    ? detail.members.filter((m) => presence.isOnline(m.id) === true).length
+    : null;
 
   return (
     <div className="overview">

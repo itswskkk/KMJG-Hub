@@ -18,11 +18,13 @@ interface MembersProps {
  * design; Current Branch needs the Tauri native layer; Current Task needs
  * the Tasks feature) — shown as honest notes, not fabricated statuses.
  *
- * Presence is deliberately shown as a plain dot only once the real-time
- * connection is open; while connecting/reconnecting, no dot is drawn and a
- * neutral note explains why, rather than presenting stale or invented
- * status as current (docs/ARCHITECTURE.md "Offline State" /
- * docs/UX.md "Offline Experience").
+ * Presence is deliberately shown as a plain dot only once fresh Project
+ * presence is known (a presence.snapshot has been received on the current
+ * real-time connection) — not merely once the connection is open, since
+ * "connected" arrives before that Project's own snapshot does. Until then,
+ * no dot is drawn and a neutral note explains why, rather than presenting
+ * stale, absent, or invented status as current (docs/ARCHITECTURE.md
+ * "Offline State" / docs/UX.md "Offline Experience").
  *
  * "Member Details" (selecting a member) and its four quick actions (Chat,
  * Send File, View Branch, View Current Task) all depend on features this
@@ -36,7 +38,7 @@ function Members({ detail }: MembersProps) {
   return (
     <div className="members">
       <h1>Members</h1>
-      {presence.status !== "open" && (
+      {!presence.ready && (
         <p className="members__note">Connecting to real-time presence…</p>
       )}
 
@@ -67,7 +69,7 @@ interface PresenceDotProps {
 }
 
 function PresenceDot({ presence, userId }: PresenceDotProps) {
-  if (presence.status !== "open") {
+  if (!presence.ready) {
     return null;
   }
   const online = presence.isOnline(userId);
@@ -92,7 +94,7 @@ interface MemberDetailProps {
 }
 
 function MemberDetail({ member, presence, onClose }: MemberDetailProps) {
-  const online = presence.status === "open" ? presence.isOnline(member.id) : undefined;
+  const online = presence.isOnline(member.id);
 
   return (
     <div className="member-detail__overlay" onClick={onClose}>
@@ -104,7 +106,7 @@ function MemberDetail({ member, presence, onClose }: MemberDetailProps) {
         <h2>{member.username}</h2>
         <p className="members__role">{member.role}</p>
         <p className="members__presence">
-          {online === undefined ? "Presence unknown (reconnecting…)" : online ? "● Online" : "○ Offline"}
+          {online === undefined ? "Presence unknown" : online ? "● Online" : "○ Offline"}
         </p>
 
         <p className="members__note">
