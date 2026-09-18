@@ -82,6 +82,31 @@ func (f *fakeProjectRepo) ListForUser(_ context.Context, userID string) ([]proje
 	return out, nil
 }
 
+// addMember is a test-only helper for exercising multi-member scenarios
+// (e.g. presence fan-out) that the product has no HTTP-facing way to reach
+// yet, since Join/Invite is not implemented. It manipulates the fake
+// repository's in-memory state directly and has no product-facing
+// counterpart.
+func (f *fakeProjectRepo) addMember(projectID, userID string, role project.Role) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.members[projectID] = append(f.members[projectID], membership{
+		UserID:   userID,
+		Role:     role,
+		JoinedAt: time.Now().UTC(),
+	})
+}
+
+func (f *fakeProjectRepo) ListMemberUserIDs(_ context.Context, projectID string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	ids := make([]string, len(f.members[projectID]))
+	for i, m := range f.members[projectID] {
+		ids[i] = m.UserID
+	}
+	return ids, nil
+}
+
 func (f *fakeProjectRepo) GetDetailForUser(_ context.Context, projectID, userID string) (*project.Detail, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

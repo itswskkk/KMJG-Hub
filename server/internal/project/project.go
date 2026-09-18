@@ -81,4 +81,12 @@ type Repository interface {
 	// GetDetailForUser returns projectID's detail if userID is one of its
 	// members, or ErrNotFound otherwise.
 	GetDetailForUser(ctx context.Context, projectID, userID string) (*Detail, error)
+
+	// ListMemberUserIDs returns the user IDs of projectID's current
+	// members, with no other membership data. Added for the presence
+	// system (internal/presence.ProjectMembership): real-time presence
+	// recipients must be derived from Server-known membership, per
+	// docs/ARCHITECTURE.md "Event Authorization", never from a
+	// Client-supplied Project ID alone.
+	ListMemberUserIDs(ctx context.Context, projectID string) ([]string, error)
 }

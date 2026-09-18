@@ -96,6 +96,13 @@ func (h *Handlers) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Drop any already-open WebSocket connections for this session
+	// immediately, rather than waiting for the Hub's periodic session
+	// sweep, per docs/ARCHITECTURE.md "Logout and Revocation": "Logging
+	// out invalidates the relevant Server-side session" — including its
+	// real-time connections.
+	h.Realtime.CloseByTokenHash(auth.HashSessionToken(authed.Token))
+
 	w.WriteHeader(http.StatusNoContent)
 }
 

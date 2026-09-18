@@ -39,8 +39,32 @@
   background: rgba(128, 128, 128, 0.08);
 }
 
+.members__identity {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .members__name {
   font-weight: 500;
+}
+
+.members__dot {
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.members__dot--online {
+  color: #2e9e44;
+}
+
+.members__dot--offline {
+  color: rgba(128, 128, 128, 0.6);
+}
+
+.members__presence {
+  font-size: 0.9rem;
+  margin: 0.25rem 0 0.75rem;
 }
 
 .members__role {

@@ -57,3 +57,25 @@ func (s *Service) List(ctx context.Context, userID string) ([]Summary, error) {
 func (s *Service) GetDetail(ctx context.Context, userID, projectID string) (*Detail, error) {
 	return s.Repo.GetDetailForUser(ctx, projectID, userID)
 }
+
+// ProjectIDsForUser returns the IDs of Projects userID currently belongs
+// to. Satisfies internal/presence.ProjectMembership so the presence system
+// can derive which Projects' member lists should include userID's
+// connection state, entirely from Server-known membership.
+func (s *Service) ProjectIDsForUser(ctx context.Context, userID string) ([]string, error) {
+	summaries, err := s.Repo.ListForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(summaries))
+	for i, summary := range summaries {
+		ids[i] = summary.ID
+	}
+	return ids, nil
+}
+
+// MemberUserIDs returns the user IDs of projectID's current members.
+// Satisfies internal/presence.ProjectMembership.
+func (s *Service) MemberUserIDs(ctx context.Context, projectID string) ([]string, error) {
+	return s.Repo.ListMemberUserIDs(ctx, projectID)
+}

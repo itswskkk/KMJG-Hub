@@ -154,6 +154,18 @@ func (s *Service) CurrentUser(ctx context.Context, token string) (*user.User, er
 	return u, nil
 }
 
+// SessionActive reports whether tokenHash (as produced by
+// HashSessionToken) still names an active, non-expired, non-revoked
+// session. Used by the real-time layer to periodically revalidate
+// already-open WebSocket connections against authoritative session state
+// (docs/ARCHITECTURE.md "Logout and Revocation": "A revoked or expired
+// session must no longer authorize ... WebSocket connections") without
+// ever handling or logging the raw token itself.
+func (s *Service) SessionActive(ctx context.Context, tokenHash string) bool {
+	_, err := s.Sessions.GetActiveByTokenHash(ctx, tokenHash)
+	return err == nil
+}
+
 func (s *Service) issueSession(ctx context.Context, u *user.User) (*Result, error) {
 	token, err := GenerateSessionToken()
 	if err != nil {

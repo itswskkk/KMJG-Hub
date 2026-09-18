@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { ReactElement, useEffect, useState } from "react";
 import ConnectServer from "./features/connect-server/ConnectServer";
 import Login from "./features/auth/Login";
 import Register from "./features/auth/Register";
 import ServerHome from "./features/server-home/ServerHome";
 import CreateProject from "./features/projects/CreateProject";
 import ProjectWorkspace from "./features/projects/ProjectWorkspace";
+import { PresenceProvider } from "./features/presence/PresenceProvider";
 import { ApiError, AuthResponse, checkHealth } from "./lib/apiClient";
 import "./App.css";
 
@@ -51,20 +52,23 @@ function App() {
     };
   }, [screen]);
 
+  let content: ReactElement;
   switch (screen.kind) {
     case "connect":
-      return <ConnectServer onConnect={(serverUrl) => setScreen({ kind: "connecting", serverUrl })} />;
+      content = <ConnectServer onConnect={(serverUrl) => setScreen({ kind: "connecting", serverUrl })} />;
+      break;
 
     case "connecting":
-      return (
+      content = (
         <main className="container">
           <h1>Connecting...</h1>
           <p>{screen.serverUrl}</p>
         </main>
       );
+      break;
 
     case "connect-failed":
-      return (
+      content = (
         <main className="container">
           <h1>Couldn&apos;t Connect</h1>
           <p>{screen.serverUrl}</p>
@@ -73,10 +77,11 @@ function App() {
           <button onClick={() => setScreen({ kind: "connecting", serverUrl: screen.serverUrl })}>Retry</button>
         </main>
       );
+      break;
 
     case "login": {
       const serverUrl = screen.serverUrl;
-      return (
+      content = (
         <Login
           serverUrl={serverUrl}
           onAuthenticated={(auth) => setScreen({ kind: "server-home", serverUrl, auth })}
@@ -84,22 +89,24 @@ function App() {
           onChangeServer={() => setScreen({ kind: "connect" })}
         />
       );
+      break;
     }
 
     case "register": {
       const serverUrl = screen.serverUrl;
-      return (
+      content = (
         <Register
           serverUrl={serverUrl}
           onAuthenticated={(auth) => setScreen({ kind: "server-home", serverUrl, auth })}
           onBackToLogin={() => setScreen({ kind: "login", serverUrl })}
         />
       );
+      break;
     }
 
     case "server-home": {
       const { serverUrl, auth } = screen;
-      return (
+      content = (
         <ServerHome
           serverUrl={serverUrl}
           token={auth.session.token}
@@ -109,11 +116,12 @@ function App() {
           onSessionExpired={() => setScreen({ kind: "login", serverUrl })}
         />
       );
+      break;
     }
 
     case "create-project": {
       const { serverUrl, auth } = screen;
-      return (
+      content = (
         <CreateProject
           serverUrl={serverUrl}
           token={auth.session.token}
@@ -121,11 +129,12 @@ function App() {
           onCancel={() => setScreen({ kind: "server-home", serverUrl, auth })}
         />
       );
+      break;
     }
 
     case "project": {
       const { serverUrl, auth, projectId } = screen;
-      return (
+      content = (
         <ProjectWorkspace
           serverUrl={serverUrl}
           token={auth.session.token}
@@ -134,8 +143,34 @@ function App() {
           onSessionExpired={() => setScreen({ kind: "login", serverUrl })}
         />
       );
+      break;
     }
   }
+
+  // The real-time connection is owned here, at a position stable across
+  // every screen transition, so switching between Server Home, Create
+  // Project, and a Project Workspace never tears the connection down (see
+  // PresenceProvider). It only reconnects when serverUrl/token actually
+  // change: login, logout, or a different Server.
+  const presenceServerUrl = "serverUrl" in screen ? screen.serverUrl : null;
+  const presenceToken = "auth" in screen ? screen.auth.session.token : null;
+
+  // If the real-time layer rejects the current session (invalid, expired,
+  // or revoked — e.g. it expired while this Client was already connected),
+  // treat it the same way an HTTP 401 is already treated elsewhere: return
+  // to that Server's Login screen rather than silently retrying with a
+  // token the Server has already rejected.
+  function handleSessionInvalid() {
+    if ("serverUrl" in screen) {
+      setScreen({ kind: "login", serverUrl: screen.serverUrl });
+    }
+  }
+
+  return (
+    <PresenceProvider serverUrl={presenceServerUrl} token={presenceToken} onSessionExpired={handleSessionInvalid}>
+      {content}
+    </PresenceProvider>
+  );
 }
 
 export default App;

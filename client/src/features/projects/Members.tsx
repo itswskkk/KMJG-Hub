@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ProjectDetail, ProjectMember } from "../../lib/apiClient";
+import { ProjectPresence, useProjectPresence } from "../presence/PresenceProvider";
 import "./Members.css";
 
 interface MembersProps {
@@ -9,13 +10,19 @@ interface MembersProps {
 /**
  * Project Members, per docs/UX.md "Members Experience". Each member entry
  * there may show Display Name, Presence, Work Status, Current Branch, and
- * Current Task — of those, only a name (we only have Username, not a
- * separate Display Name field yet) and Role are real data this checkpoint.
- * Presence/Work Status/Current Branch/Current Task all depend on features
- * not built yet (Presence architecture needs the WebSocket layer this
- * codebase doesn't have; Current Branch needs the Tauri native layer;
- * Current Task needs the Tasks feature) — shown as honest notes, not
- * fabricated statuses, per the same pattern used throughout Overview.
+ * Current Task. Display Name (we only have Username, not a separate
+ * Display Name field yet), Role, and — as of this checkpoint — real
+ * Presence (docs/ARCHITECTURE.md "Presence and Work Status Architecture")
+ * are real data. Work Status/Current Branch/Current Task still depend on
+ * features not built yet (Work Status needs its own activity-detection
+ * design; Current Branch needs the Tauri native layer; Current Task needs
+ * the Tasks feature) — shown as honest notes, not fabricated statuses.
+ *
+ * Presence is deliberately shown as a plain dot only once the real-time
+ * connection is open; while connecting/reconnecting, no dot is drawn and a
+ * neutral note explains why, rather than presenting stale or invented
+ * status as current (docs/ARCHITECTURE.md "Offline State" /
+ * docs/UX.md "Offline Experience").
  *
  * "Member Details" (selecting a member) and its four quick actions (Chat,
  * Send File, View Branch, View Current Task) all depend on features this
@@ -24,34 +31,69 @@ interface MembersProps {
  */
 function Members({ detail }: MembersProps) {
   const [selected, setSelected] = useState<ProjectMember | null>(null);
+  const presence = useProjectPresence(detail.id);
 
   return (
     <div className="members">
       <h1>Members</h1>
-      <p className="members__note">Online presence and work status are not implemented yet.</p>
+      {presence.status !== "open" && (
+        <p className="members__note">Connecting to real-time presence…</p>
+      )}
 
       <ul className="members__list">
         {detail.members.map((member) => (
           <li key={member.id}>
             <button type="button" className="members__row" onClick={() => setSelected(member)}>
-              <span className="members__name">{member.username}</span>
+              <span className="members__identity">
+                <PresenceDot presence={presence} userId={member.id} />
+                <span className="members__name">{member.username}</span>
+              </span>
               <span className="members__role">{member.role}</span>
             </button>
           </li>
         ))}
       </ul>
 
-      {selected && <MemberDetail member={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <MemberDetail member={selected} presence={presence} onClose={() => setSelected(null)} />
+      )}
     </div>
+  );
+}
+
+interface PresenceDotProps {
+  presence: ProjectPresence;
+  userId: string;
+}
+
+function PresenceDot({ presence, userId }: PresenceDotProps) {
+  if (presence.status !== "open") {
+    return null;
+  }
+  const online = presence.isOnline(userId);
+  if (online === undefined) {
+    return null;
+  }
+  return (
+    <span
+      className={online ? "members__dot members__dot--online" : "members__dot members__dot--offline"}
+      aria-label={online ? "Online" : "Offline"}
+      title={online ? "Online" : "Offline"}
+    >
+      {online ? "●" : "○"}
+    </span>
   );
 }
 
 interface MemberDetailProps {
   member: ProjectMember;
+  presence: ProjectPresence;
   onClose: () => void;
 }
 
-function MemberDetail({ member, onClose }: MemberDetailProps) {
+function MemberDetail({ member, presence, onClose }: MemberDetailProps) {
+  const online = presence.status === "open" ? presence.isOnline(member.id) : undefined;
+
   return (
     <div className="member-detail__overlay" onClick={onClose}>
       <div className="member-detail" onClick={(event) => event.stopPropagation()}>
@@ -61,9 +103,12 @@ function MemberDetail({ member, onClose }: MemberDetailProps) {
 
         <h2>{member.username}</h2>
         <p className="members__role">{member.role}</p>
+        <p className="members__presence">
+          {online === undefined ? "Presence unknown (reconnecting…)" : online ? "● Online" : "○ Offline"}
+        </p>
 
         <p className="members__note">
-          Presence, work status, current branch, and current task are not implemented yet.
+          Work status, current branch, and current task are not implemented yet.
         </p>
 
         <div className="member-detail__actions">

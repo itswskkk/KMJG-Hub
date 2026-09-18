@@ -1,4 +1,5 @@
 import { ProjectDetail } from "../../lib/apiClient";
+import { useProjectPresence } from "../presence/PresenceProvider";
 import "./Overview.css";
 
 interface OverviewProps {
@@ -7,27 +8,42 @@ interface OverviewProps {
 }
 
 /**
- * Project Overview, per docs/UX.md "Project Overview". Member count is real
- * data; the full member list with roles now lives in the dedicated Members
- * section (docs/UX.md "Members Experience") rather than being duplicated
- * here, matching the UX mockup's own "Members Online 3/4" summary rather
- * than a full roster. Online presence, Tasks, Git activity, and Project
- * activity are separate features not built in this checkpoint (see
- * PROGRESS.md) — those sections are shown honestly as not-yet-available
- * rather than backed by fabricated data, the same pattern used for the
- * disabled GitHub login option.
+ * Project Overview, per docs/UX.md "Project Overview". Member count and
+ * online count are real data (the latter derived from the authenticated
+ * real-time connection, per docs/ARCHITECTURE.md "Presence"); the full
+ * member list with roles lives in the dedicated Members section
+ * (docs/UX.md "Members Experience") rather than being duplicated here,
+ * matching the UX mockup's own "Members Online 3/4" summary rather than a
+ * full roster. Tasks, Git activity, and Project activity are separate
+ * features not built in this checkpoint (see PROGRESS.md) — those sections
+ * are shown honestly as not-yet-available rather than backed by fabricated
+ * data, the same pattern used for the disabled GitHub login option.
  */
 function Overview({ detail, onViewMembers }: OverviewProps) {
+  const presence = useProjectPresence(detail.id);
+  const onlineCount =
+    presence.status === "open"
+      ? detail.members.filter((m) => presence.isOnline(m.id) === true).length
+      : null;
+
   return (
     <div className="overview">
       {detail.description && <p className="overview__description">{detail.description}</p>}
 
       <section className="overview__section">
         <h2>Members</h2>
-        <p>
-          {detail.members.length} {detail.members.length === 1 ? "Member" : "Members"}
-        </p>
-        <p className="overview__note">Online presence is not implemented yet.</p>
+        {onlineCount !== null ? (
+          <p>
+            Members Online: {onlineCount} / {detail.members.length}
+          </p>
+        ) : (
+          <>
+            <p>
+              {detail.members.length} {detail.members.length === 1 ? "Member" : "Members"}
+            </p>
+            <p className="overview__note">Connecting to real-time presence…</p>
+          </>
+        )}
         <button type="button" onClick={onViewMembers}>
           View Members
         </button>

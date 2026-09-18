@@ -14,7 +14,9 @@ import (
 
 	"github.com/itswskkk/KMJG-Hub/server/internal/auth"
 	"github.com/itswskkk/KMJG-Hub/server/internal/httpapi"
+	"github.com/itswskkk/KMJG-Hub/server/internal/presence"
 	"github.com/itswskkk/KMJG-Hub/server/internal/project"
+	"github.com/itswskkk/KMJG-Hub/server/internal/realtime"
 	"github.com/itswskkk/KMJG-Hub/server/internal/session"
 	"github.com/itswskkk/KMJG-Hub/server/internal/user"
 )
@@ -121,15 +123,32 @@ func (f *fakeSessionRepo) Revoke(_ context.Context, tokenHash string) error {
 	return nil
 }
 
-func newTestRouter() http.Handler {
+// newTestRouterWithHandlers is like newTestRouter but also returns the
+// wired Handlers, for tests (e.g. WebSocket tests) that need direct access
+// to the Realtime hub or Presence service alongside the HTTP router.
+func newTestRouterWithHandlers() (http.Handler, *httpapi.Handlers, *fakeProjectRepo) {
 	users := &fakeUserRepo{}
 	authSvc := &auth.Service{
 		Users:      users,
 		Sessions:   &fakeSessionRepo{},
 		SessionTTL: time.Hour,
 	}
-	projectSvc := &project.Service{Repo: newFakeProjectRepo(users)}
-	return httpapi.NewRouter(&httpapi.Handlers{Auth: authSvc, Projects: projectSvc}, []string{"http://localhost:1420"})
+	projectRepo := newFakeProjectRepo(users)
+	projectSvc := &project.Service{Repo: projectRepo}
+
+	hub := realtime.NewHub(context.Background())
+	presenceSvc := &presence.Service{Membership: projectSvc, Hub: hub}
+	hub.OnUserOnline = presenceSvc.HandleUserOnline
+	hub.OnUserOffline = presenceSvc.HandleUserOffline
+
+	handlers := &httpapi.Handlers{Auth: authSvc, Projects: projectSvc, Realtime: hub, Presence: presenceSvc}
+	router := httpapi.NewRouter(handlers, []string{"http://localhost:1420"})
+	return router, handlers, projectRepo
+}
+
+func newTestRouter() http.Handler {
+	router, _, _ := newTestRouterWithHandlers()
+	return router
 }
 
 // extractToken pulls the session token out of a register/login response

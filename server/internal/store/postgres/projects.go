@@ -131,3 +131,25 @@ func (r *ProjectRepository) GetDetailForUser(ctx context.Context, projectID, use
 
 	return &d, nil
 }
+
+// ListMemberUserIDs is only ever called by the presence system with a
+// projectID it already read from this same repository (see
+// project.Service.ProjectIDsForUser), never with Client-supplied input, so
+// unlike GetDetailForUser it does not need its own malformed-UUID handling.
+func (r *ProjectRepository) ListMemberUserIDs(ctx context.Context, projectID string) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `SELECT user_id FROM project_members WHERE project_id = $1`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}

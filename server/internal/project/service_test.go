@@ -70,6 +70,46 @@ func (f *fakeRepo) GetDetailForUser(_ context.Context, projectID, userID string)
 	return nil, project.ErrNotFound
 }
 
+func (f *fakeRepo) ListMemberUserIDs(_ context.Context, projectID string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	ids := make([]string, len(f.members[projectID]))
+	for i, m := range f.members[projectID] {
+		ids[i] = m.UserID
+	}
+	return ids, nil
+}
+
+func TestProjectIDsForUserAndMemberUserIDs(t *testing.T) {
+	svc := &project.Service{Repo: newFakeRepo()}
+	ctx := context.Background()
+
+	p, err := svc.Create(ctx, "user-1", project.CreateInput{Name: "KMJG Hub Development"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	ids, err := svc.ProjectIDsForUser(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("ProjectIDsForUser: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != p.ID {
+		t.Fatalf("expected [%s], got %v", p.ID, ids)
+	}
+
+	if ids, err := svc.ProjectIDsForUser(ctx, "user-2"); err != nil || len(ids) != 0 {
+		t.Fatalf("expected no projects for a non-member, got %v (err=%v)", ids, err)
+	}
+
+	members, err := svc.MemberUserIDs(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("MemberUserIDs: %v", err)
+	}
+	if len(members) != 1 || members[0] != "user-1" {
+		t.Fatalf("expected [user-1], got %v", members)
+	}
+}
+
 func TestCreateProjectMakesCreatorOwner(t *testing.T) {
 	svc := &project.Service{Repo: newFakeRepo()}
 	p, err := svc.Create(context.Background(), "user-1", project.CreateInput{Name: "KMJG Hub Development"})
