@@ -1,0 +1,15 @@
+.offline-banner {
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  background: rgba(212, 148, 8, 0.12);
+  color: #9a6400;
+  border: 1px solid rgba(212, 148, 8, 0.35);
+}
+
+.offline-banner--syncing {
+  background: rgba(99, 102, 241, 0.1);
+  color: #4338ca;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}

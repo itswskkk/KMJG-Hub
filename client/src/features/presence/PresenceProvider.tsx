@@ -18,6 +18,13 @@ import {
 
 interface PresenceState {
   connectionStatus: ConnectionStatus;
+  // True only for a short window right after the connection comes back
+  // ("reconnecting" -> "open") — a hint for the UI that fresh data is being
+  // resynced, per docs/VISION.md "Offline Support": "When connectivity
+  // returns, the client should synchronize with the server where
+  // appropriate." Never true for the very first connect (that is not a
+  // resync, there is nothing stale to refresh yet).
+  isSyncing: boolean;
   // projectId -> userId -> online. Only ever holds data delivered on the
   // *current* connection generation — cleared whenever the connection stops
   // being open (see the onConnectionStatusChange handler below), so a
@@ -47,7 +54,7 @@ export type ChatRealtimeEvent =
   | { type: "created"; data: ProjectMessageEvent }
   | { type: "deleted"; data: ProjectMessageDeletedEvent };
 
-const initialState: PresenceState = { connectionStatus: "closed", projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [], friendEvents: [], dmEvents: [], notificationEvents: [], fileTransferEvents: [] };
+const initialState: PresenceState = { connectionStatus: "closed", isSyncing: false, projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [], friendEvents: [], dmEvents: [], notificationEvents: [], fileTransferEvents: [] };
 
 const PresenceStateContext = createContext<PresenceState>(initialState);
 
@@ -88,7 +95,10 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
       onConnectionStatusChange: (connectionStatus) => {
         setState((prev) =>
           connectionStatus === "open"
-            ? { ...prev, connectionStatus }
+            ? // Only a transition out of "reconnecting" is a resync of a
+              // connection that was previously live — the very first
+              // "connecting" -> "open" has no stale data to refresh.
+              { ...prev, connectionStatus, isSyncing: prev.connectionStatus === "reconnecting" }
             : // The connection just stopped being open (or has never been
               // open yet): any presence already known belongs to a
               // connection that is no longer live. Drop it rather than
@@ -96,7 +106,7 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
               // that next connection's own "connected" must not make this
               // stale (or, for a brand-new project, absent) data look
               // current again.
-              { connectionStatus, projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [], friendEvents: [], dmEvents: [], notificationEvents: [], fileTransferEvents: [] },
+              { connectionStatus, isSyncing: false, projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [], friendEvents: [], dmEvents: [], notificationEvents: [], fileTransferEvents: [] },
         );
       },
       onSnapshot: (data: PresenceSnapshotEvent) => {
@@ -161,7 +171,41 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverUrl, token]);
 
+  // "isSyncing" is only a brief hint (docs/VISION.md "Offline Support"):
+  // clear it shortly after a reconnect so the UI does not show "Syncing…"
+  // indefinitely if nothing ever explicitly turns it back off.
+  useEffect(() => {
+    if (!state.isSyncing) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      setState((prev) => (prev.isSyncing ? { ...prev, isSyncing: false } : prev));
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [state.isSyncing]);
+
   return <PresenceStateContext.Provider value={state}>{children}</PresenceStateContext.Provider>;
+}
+
+export interface ConnectionStatusInfo {
+  /** The underlying real-time connection's raw status. */
+  status: ConnectionStatus;
+  /** True only when the real-time connection is actually open. This is the
+   * WebSocket-derived signal the Phase 11 plan calls for — more accurate
+   * than `navigator.onLine` for "can this Client actually reach the
+   * Server," since it reflects a real, authenticated round trip rather
+   * than just local network interface state. */
+  isOnline: boolean;
+  /** True only for a brief window right after reconnecting, while cached
+   * data is expected to be refreshed from the Server. */
+  isSyncing: boolean;
+}
+
+/** Reads the authenticated real-time connection's online/offline status
+ * from the nearest PresenceProvider, per docs/PRD.md "Offline Behavior". */
+export function useConnectionStatus(): ConnectionStatusInfo {
+  const state = useContext(PresenceStateContext);
+  return { status: state.connectionStatus, isOnline: state.connectionStatus === "open", isSyncing: state.isSyncing };
 }
 
 /** Returns the current connection generation's Direct Message events. HTTP

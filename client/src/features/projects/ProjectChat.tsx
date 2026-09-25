@@ -10,7 +10,9 @@ import {
   sendProjectMessage,
 	uploadProjectAttachment,
 } from "../../lib/apiClient";
-import { useProjectChatEvents } from "../presence/PresenceProvider";
+import { useConnectionStatus, useProjectChatEvents } from "../presence/PresenceProvider";
+import { cacheGet, cacheKey, cacheSet } from "../../lib/offlineCache";
+import OfflineBanner from "../../components/OfflineBanner";
 import "./ProjectChat.css";
 
 const MAX_MESSAGE_CHARACTERS = 4000;
@@ -42,36 +44,64 @@ function ProjectChat({ detail, serverUrl, token, viewerUserId, onSessionExpired 
 	const [nextCursor,setNextCursor]=useState("");
 	const [loadingOlder,setLoadingOlder]=useState(false);
 	const [attachment,setAttachment]=useState<File|null>(null);
+	const [usingCachedMessages,setUsingCachedMessages]=useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
   const realtimeEvents = useProjectChatEvents(detail.id);
   const draftCharacterCount = Array.from(draft).length;
+  // docs/PRD.md "Offline Behavior": "Previous conversations" should still
+  // be visible while disconnected. Sending stays gated on connectivity too,
+  // since it requires an HTTP POST (no offline composition/queueing per
+  // docs/PRD.md/docs/VISION.md "Offline Support").
+  const { isOnline } = useConnectionStatus();
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    listProjectMessages(serverUrl, token, detail.id)
-      .then((page) => {
-        if (!cancelled) {
-		  setMessages((current) => sortMessages([...page.messages, ...current.filter((message) => !page.messages.some((item) => item.id === message.id))]));
-		  setNextCursor(page.next_cursor);
+    const cacheKeyForProject = cacheKey(serverUrl, detail.id);
+
+    function applyCached(cached: ProjectChatMessage[]) {
+      setMessages((current) => sortMessages([...cached, ...current.filter((message) => !cached.some((item) => item.id === message.id))]));
+      setUsingCachedMessages(true);
+    }
+
+    async function load() {
+      if (!isOnline) {
+        const cached = await cacheGet<ProjectChatMessage[]>("chat_messages", cacheKeyForProject);
+        if (!cancelled && cached && cached.length > 0) {
+          applyCached(cached);
         }
-      })
-      .catch((err) => {
+      }
+
+      try {
+        const page = await listProjectMessages(serverUrl, token, detail.id);
+        if (cancelled) return;
+        setMessages((current) => sortMessages([...page.messages, ...current.filter((message) => !page.messages.some((item) => item.id === message.id))]));
+        setNextCursor(page.next_cursor);
+        setUsingCachedMessages(false);
+        void cacheSet("chat_messages", cacheKeyForProject, page.messages);
+      } catch (err) {
         if (cancelled) return;
         if (isSessionExpired(err)) {
           onSessionExpired();
           return;
         }
-        setError(err instanceof ApiError ? err.message : "Could not load Project Chat.");
-      })
-      .finally(() => {
+        const cached = await cacheGet<ProjectChatMessage[]>("chat_messages", cacheKeyForProject);
+        if (!cancelled && cached && cached.length > 0) {
+          applyCached(cached);
+        } else if (!cancelled) {
+          setError(err instanceof ApiError ? err.message : "Could not load Project Chat.");
+        }
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    }
+
+    void load();
     return () => {
       cancelled = true;
     };
-  }, [detail.id, onSessionExpired, serverUrl, token]);
+  }, [detail.id, onSessionExpired, serverUrl, token, isOnline]);
 
   useEffect(() => {
     for (const event of realtimeEvents) {
@@ -98,7 +128,7 @@ function ProjectChat({ detail, serverUrl, token, viewerUserId, onSessionExpired 
   const handleSubmit = async (event?: FormEvent) => {
     event?.preventDefault();
     const body = draft.trim();
-	if ((!body && !attachment) || sending || draftCharacterCount > MAX_MESSAGE_CHARACTERS) return;
+	if ((!body && !attachment) || sending || !isOnline || draftCharacterCount > MAX_MESSAGE_CHARACTERS) return;
     setSending(true);
     setError(null);
     try {
@@ -150,6 +180,8 @@ function ProjectChat({ detail, serverUrl, token, viewerUserId, onSessionExpired 
         <h1>Project Chat</h1>
         <p>Shared with all current members of {detail.name}.</p>
       </header>
+
+      <OfflineBanner detail="showing last known messages" forceShow={usingCachedMessages} />
 
       {error && <p className="project-chat__error" role="alert">{error}</p>}
 
@@ -206,8 +238,8 @@ function ProjectChat({ detail, serverUrl, token, viewerUserId, onSessionExpired 
           <span className={draftCharacterCount > MAX_MESSAGE_CHARACTERS ? "project-chat__count--invalid" : undefined}>
             {draftCharacterCount.toLocaleString()} / {MAX_MESSAGE_CHARACTERS.toLocaleString()}
           </span>
-		  <button type="submit" disabled={sending || (!draft.trim()&&!attachment) || draftCharacterCount > MAX_MESSAGE_CHARACTERS}>
-            {sending ? "Sending..." : "Send"}
+		  <button type="submit" disabled={sending || !isOnline || (!draft.trim()&&!attachment) || draftCharacterCount > MAX_MESSAGE_CHARACTERS}>
+            {sending ? "Sending..." : isOnline ? "Send" : "Offline"}
           </button>
         </div>
       </form>

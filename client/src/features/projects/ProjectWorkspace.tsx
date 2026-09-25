@@ -7,8 +7,10 @@ import ProjectTasks from "./ProjectTasks";
 import DeveloperTools from "./DeveloperTools";
 import GitSection from "./GitSection";
 import FilesSection from "./FilesSection";
-import { useProjectTaskEvents } from "../presence/PresenceProvider";
+import { useConnectionStatus, useProjectTaskEvents } from "../presence/PresenceProvider";
 import WorkContextPanel from "../work-context/WorkContextPanel";
+import { cacheGet, cacheKey, cacheSet } from "../../lib/offlineCache";
+import OfflineBanner from "../../components/OfflineBanner";
 import "./ProjectWorkspace.css";
 
 interface ProjectWorkspaceProps {
@@ -44,42 +46,68 @@ function ProjectWorkspace({
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [section, setSection] = useState<Section>("overview");
+  const [usingCachedDetail, setUsingCachedDetail] = useState(false);
   const taskEvents = useProjectTaskEvents(projectId);
+  // docs/PRD.md "Offline Behavior": "Last known member or Git status where
+  // available" should still be visible while disconnected.
+  const { isOnline } = useConnectionStatus();
 
   useEffect(() => {
     let cancelled = false;
     setDetail(null);
     setError(null);
     setSection("overview");
+    setUsingCachedDetail(false);
+    const key = cacheKey(serverUrl, "detail", projectId);
 
-    getProject(serverUrl, token, projectId)
-      .then((d) => {
-        if (!cancelled) {
-          setDetail(d);
+    async function load() {
+      if (!isOnline) {
+        const cached = await cacheGet<ProjectDetail>("projects", key);
+        if (!cancelled && cached) {
+          setDetail(cached);
+          setUsingCachedDetail(true);
         }
-      })
-      .catch((err) => {
-        if (cancelled) {
-          return;
-        }
+      }
+
+      try {
+        const d = await getProject(serverUrl, token, projectId);
+        if (cancelled) return;
+        setDetail(d);
+        setUsingCachedDetail(false);
+        void cacheSet("projects", key, d);
+      } catch (err) {
+        if (cancelled) return;
         if (isSessionExpired(err)) {
           onSessionExpired();
           return;
         }
-        setError(err instanceof ApiError ? err.message : "Could not load this project.");
-      });
+        const cached = await cacheGet<ProjectDetail>("projects", key);
+        if (!cancelled && cached) {
+          setDetail(cached);
+          setUsingCachedDetail(true);
+        } else if (!cancelled) {
+          setError(err instanceof ApiError ? err.message : "Could not load this project.");
+        }
+      }
+    }
+
+    void load();
 
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverUrl, token, projectId]);
+  }, [serverUrl, token, projectId, isOnline]);
 
   // Role changes and ownership transfer change Project detail (including
   // the viewer's own role), so reload it from the Server afterwards.
   function reloadDetail() {
     getProject(serverUrl, token, projectId)
-      .then(setDetail)
+      .then((d) => {
+        setDetail(d);
+        setUsingCachedDetail(false);
+        void cacheSet("projects", cacheKey(serverUrl, "detail", projectId), d);
+      })
       .catch((err) => {
         if (isSessionExpired(err)) {
           onSessionExpired();
@@ -95,7 +123,12 @@ function ProjectWorkspace({
     if (taskEvents.length === 0) return;
     let cancelled = false;
     getProject(serverUrl, token, projectId)
-      .then((d) => { if (!cancelled) setDetail(d); })
+      .then((d) => {
+        if (cancelled) return;
+        setDetail(d);
+        setUsingCachedDetail(false);
+        void cacheSet("projects", cacheKey(serverUrl, "detail", projectId), d);
+      })
       .catch((err) => {
         if (!cancelled && isSessionExpired(err)) onSessionExpired();
       });
@@ -131,6 +164,9 @@ function ProjectWorkspace({
       </aside>
 
       <main className="project-workspace__content">
+        {/* Project Chat shows its own, more specific offline banner —
+            avoid a duplicate here while that section is active. */}
+        {section !== "chat" && <OfflineBanner detail="showing last known project info" forceShow={usingCachedDetail} />}
 		{detail&&<WorkContextPanel serverUrl={serverUrl} token={token} projectId={projectId} viewerUserId={viewerUserId}/>}
         {error && (
           <p className="project-workspace__error" role="alert">

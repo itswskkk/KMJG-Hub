@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { ApiError, DeletedProject, DirectInvitation, ProjectSummary, acceptInvitation, declineInvitation, isSessionExpired, joinProjectWithInvite, listNotifications, listProjects, listReceivedInvitations, listDeletedProjects, logout, restoreProject } from "../../lib/apiClient";
-import { useNotificationEvents } from "../presence/PresenceProvider";
+import { useConnectionStatus, useNotificationEvents } from "../presence/PresenceProvider";
+import { cacheGet, cacheKey, cacheSet } from "../../lib/offlineCache";
+import OfflineBanner from "../../components/OfflineBanner";
 import "./ServerHome.css";
 import "./Notifications.css";
 
@@ -35,8 +37,12 @@ function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject
   const [deletedProjects, setDeletedProjects] = useState<DeletedProject[]>([]);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [deletedError, setDeletedError] = useState<string | null>(null);
+  const [usingCachedProjects, setUsingCachedProjects] = useState(false);
   const notificationEvents = useNotificationEvents();
   const latestNotification = notificationEvents[notificationEvents.length - 1];
+  // docs/PRD.md "Offline Behavior": while disconnected (or when a fetch
+  // fails), fall back to the last cached project list rather than an error.
+  const { isOnline } = useConnectionStatus();
 
   // Unread badge: the HTTP unread_count is authoritative; each live
   // notification.created event re-fetches it (and a new project_invitation
@@ -51,29 +57,51 @@ function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject
 
   useEffect(() => {
     let cancelled = false;
+    const key = cacheKey(serverUrl, "list");
 
-    listProjects(serverUrl, token)
-      .then((list) => {
-        if (!cancelled) {
-          setProjects(list);
+    async function load() {
+      // Offline is a fast, reliable first signal (see useConnectionStatus):
+      // paint the last known list immediately rather than waiting on a
+      // fetch that is very likely to fail anyway.
+      if (!isOnline) {
+        const cached = await cacheGet<ProjectSummary[]>("projects", key);
+        if (!cancelled && cached) {
+          setProjects(cached);
+          setUsingCachedProjects(true);
         }
-      })
-      .catch((err) => {
-        if (cancelled) {
-          return;
-        }
+      }
+
+      try {
+        const list = await listProjects(serverUrl, token);
+        if (cancelled) return;
+        setProjects(list);
+        setUsingCachedProjects(false);
+        setError(null);
+        void cacheSet("projects", key, list);
+      } catch (err) {
+        if (cancelled) return;
         if (isSessionExpired(err)) {
           onSessionExpired();
           return;
         }
-        setError(err instanceof ApiError ? err.message : "Could not load your projects.");
-      });
+        const cached = await cacheGet<ProjectSummary[]>("projects", key);
+        if (!cancelled && cached) {
+          setProjects(cached);
+          setUsingCachedProjects(true);
+          setError(null);
+        } else if (!cancelled) {
+          setError(err instanceof ApiError ? err.message : "Could not load your projects.");
+        }
+      }
+    }
+
+    void load();
 
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverUrl, token]);
+  }, [serverUrl, token, isOnline]);
 
   // "Recently Deleted Projects" (docs/PRD.md "Project Recovery"): only the
   // Owner who deleted a Project sees it here, and the section is hidden
@@ -181,6 +209,8 @@ function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject
           </button>
         </div>
       </div>
+
+      <OfflineBanner detail="showing cached projects" forceShow={usingCachedProjects} />
 
       <section className="server-home__projects">
         <h2>Project Invitations</h2>
