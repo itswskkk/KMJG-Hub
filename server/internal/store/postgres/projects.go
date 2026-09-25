@@ -105,9 +105,11 @@ func (r *ProjectRepository) GetDetailForUser(ctx context.Context, projectID, use
 	d.ViewerRole = project.Role(role)
 
 	rows, err := r.pool.Query(ctx, `
-		SELECT u.id, u.username, pm.role, pm.joined_at
+		SELECT u.id, u.username, pm.role, pm.joined_at, t.title
 		FROM project_members pm
 		JOIN users u ON u.id = pm.user_id
+		LEFT JOIN user_current_tasks ct ON ct.user_id = pm.user_id
+		LEFT JOIN project_tasks t ON t.id = ct.task_id AND t.project_id = pm.project_id
 		WHERE pm.project_id = $1
 		ORDER BY pm.joined_at ASC
 	`, projectID)
@@ -119,7 +121,7 @@ func (r *ProjectRepository) GetDetailForUser(ctx context.Context, projectID, use
 	for rows.Next() {
 		var m project.Member
 		var memberRole string
-		if err := rows.Scan(&m.UserID, &m.Username, &memberRole, &m.JoinedAt); err != nil {
+		if err := rows.Scan(&m.UserID, &m.Username, &memberRole, &m.JoinedAt, &m.CurrentTaskTitle); err != nil {
 			return nil, err
 		}
 		m.Role = project.Role(memberRole)

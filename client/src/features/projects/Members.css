@@ -79,6 +79,7 @@
   font-size: 0.85rem;
   text-transform: capitalize;
 }
+.members__current-task { display: block; opacity: .72; margin-top: .2rem; }
 
 .member-detail__overlay {
   position: fixed;

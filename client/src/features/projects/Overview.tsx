@@ -55,7 +55,8 @@ function Overview({ detail, onViewMembers }: OverviewProps) {
 
       <section className="overview__section">
         <h2>Current Tasks</h2>
-        <p className="overview__note">Tasks are not implemented yet.</p>
+        {detail.members.filter((member) => member.current_task_title).map((member) => <p key={member.id}>{member.username}: {member.current_task_title}</p>)}
+        {detail.members.every((member) => !member.current_task_title) && <p className="overview__note">No member has selected a current task.</p>}
       </section>
 
       <section className="overview__section">

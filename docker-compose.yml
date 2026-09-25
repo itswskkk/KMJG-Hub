@@ -39,6 +39,9 @@ services:
       KMJG_DATABASE_URL: postgres://${POSTGRES_USER:-kmjg}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-kmjg_hub}?sslmode=disable
       KMJG_ALLOWED_ORIGINS: ${KMJG_ALLOWED_ORIGINS:-http://localhost:1420,tauri://localhost,http://tauri.localhost,https://tauri.localhost}
       KMJG_SESSION_TTL_HOURS: ${KMJG_SESSION_TTL_HOURS:-720}
+      KMJG_FILE_STORAGE_DIR: ${KMJG_FILE_STORAGE_DIR:-/var/lib/kmjg-hub/files}
+      KMJG_MAX_UPLOAD_BYTES: ${KMJG_MAX_UPLOAD_BYTES:-26214400}
+      KMJG_MAX_PROJECT_STORAGE_BYTES: ${KMJG_MAX_PROJECT_STORAGE_BYTES:-1073741824}
     ports:
       - "${KMJG_PUBLISHED_PORT:-8080}:8080"
     volumes:

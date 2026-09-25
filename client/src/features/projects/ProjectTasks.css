@@ -1,7 +1,8 @@
 .project-tasks__header h2 { margin: 0; }
 .project-tasks__header p, .task-card p, .task-column__empty { opacity: .72; }
-.project-tasks__new { display: grid; grid-template-columns: 1fr 1fr auto; gap: .6rem; margin: 1.5rem 0; }
+.project-tasks__new { display: grid; grid-template-columns: 1fr 1fr minmax(9rem, auto) auto; gap: .6rem; margin: 1.5rem 0; align-items: end; }
 .project-tasks__new input { min-width: 0; }
+.project-tasks__due-date { display: grid; gap: .2rem; font-size: .8rem; }
 .project-tasks__error { color: #d33; }
 .task-requests { border: 1px solid rgba(74,125,252,.4); border-radius: 8px; padding: .75rem; margin-bottom: 1rem; }
 .task-requests h3 { margin: 0 0 .5rem; font-size: 1rem; }

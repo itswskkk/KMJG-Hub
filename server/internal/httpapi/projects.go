@@ -22,9 +22,10 @@ type projectSummaryDTO struct {
 }
 
 type projectMemberDTO struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
-	Role     string `json:"role"`
+	ID               string  `json:"id"`
+	Username         string  `json:"username"`
+	Role             string  `json:"role"`
+	CurrentTaskTitle *string `json:"current_task_title"`
 }
 
 type projectDetailDTO struct {
@@ -48,7 +49,7 @@ func toProjectSummaryDTO(s project.Summary) projectSummaryDTO {
 func toProjectDetailDTO(d *project.Detail) projectDetailDTO {
 	members := make([]projectMemberDTO, len(d.Members))
 	for i, m := range d.Members {
-		members[i] = projectMemberDTO{ID: m.UserID, Username: m.Username, Role: string(m.Role)}
+		members[i] = projectMemberDTO{ID: m.UserID, Username: m.Username, Role: string(m.Role), CurrentTaskTitle: m.CurrentTaskTitle}
 	}
 	return projectDetailDTO{
 		projectDTO: toProjectDTO(d.Project),

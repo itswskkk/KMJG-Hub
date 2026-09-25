@@ -38,6 +38,11 @@ export interface ProjectMessageDeletedEvent {
   message_id: string;
 }
 
+export interface ProjectTaskChangedEvent {
+  project_id: string;
+  task_id: string;
+}
+
 export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "closed";
 
 export interface RealtimeClientHandlers {
@@ -46,6 +51,7 @@ export interface RealtimeClientHandlers {
   onUpdated: (data: PresenceUpdatedEvent) => void;
   onProjectMessageCreated?: (data: ProjectMessageEvent) => void;
   onProjectMessageDeleted?: (data: ProjectMessageDeletedEvent) => void;
+  onProjectTaskChanged?: (data: ProjectTaskChangedEvent) => void;
   /** The Server rejected the session (invalid/expired/revoked) — the same
    * condition the Client already treats as a sign-out over HTTP
    * (apiClient's isSessionExpired). Reconnecting with the same token would
@@ -156,6 +162,9 @@ export class RealtimeClient {
         break;
       case "project.message.deleted":
         this.handlers.onProjectMessageDeleted?.(envelope.data as ProjectMessageDeletedEvent);
+        break;
+      case "project.task.changed":
+        this.handlers.onProjectTaskChanged?.(envelope.data as ProjectTaskChangedEvent);
         break;
       case "error":
         // The Server closes the connection right after; stop here instead

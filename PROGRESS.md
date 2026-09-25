@@ -1,10 +1,16 @@
 ## Resume Here
 
-Latest feature commit: `be47289` (`feat: add project invitations and chat`)
-Branch: `main`, pushed to `origin/main`.
-Working tree was clean immediately after that push. Checkpoints 5–8 are
-verified, committed together in `be47289`, and pushed; do not reimplement or
-discard them when resuming.
+Latest local feature commit: `b9be2b1` (`feat: complete task assignment flow`)
+on `main`. It and its prerequisite `590d4bf` are **local only and have not
+been pushed**. `be47289` remains the latest feature commit on `origin/main`.
+
+The working tree is intentionally dirty with the next, uncommitted Tasks
+slice. Do not discard it: it adds member Current Task data to Project detail,
+renders that context on Overview and Members, adds the assign-another-member
+control to Task detail, and publishes/consumes Task change events over the
+authenticated WebSocket. It also adds the first filesystem storage abstraction
+and deployment-configured attachment limits; all of this remains uncommitted
+pending a final checkpoint commit.
 
 Current implementation state:
 - Connect Server: complete
@@ -24,15 +30,19 @@ Current implementation state:
   implementation complete and verified, committed and pushed in `be47289` —
   see Checkpoint 8 below**
 
-The next major checkpoint is **Tasks**. Project Chat file attachments remain a
+**Tasks implementation and verification are complete; the checkpoint is not
+yet committed.** The real-time Task event, focused unit/HTTP coverage, and
+PostgreSQL-backed Task coverage now pass. Project Chat file attachments remain a
 separate storage checkpoint; the text timeline, history, realtime delivery,
 message deletion, and 30-day cleanup lifecycle now work. Invitation
 notifications and real-time invitation events remain separate enhancements;
 persistent invitation state and all required join paths work through HTTP.
 
-### Tasks checkpoint — in progress (uncommitted)
+### Tasks checkpoint — implementation state
 
-The resumed implementation has added the persistent Server model and HTTP
+#### Committed locally (not pushed)
+
+`590d4bf` (`feat: add project tasks foundation`) adds the persistent Server model and HTTP
 surface for Tasks: project-scoped Kanban statuses, task creation/listing and
 detail retrieval, status updates, self-assignment, explicit other-member
 assignment requests with accept/decline, one current task per user, and
@@ -40,14 +50,64 @@ persistent task comments. Migration `0006_tasks.sql` creates the required
 tables. Every data operation derives access from authoritative
 `project_members` rows; client-supplied project/task IDs never grant access.
 
-The Client now enables **Tasks** in Project Workspace and provides a usable
-Kanban board with task creation and manual status moves. The assignment,
-current-task, detail/comments, and real-time task-update UI pieces still need
-to be connected before this checkpoint can be called complete. The Client
-production build and the Server's full `go test ./...` suite passed after the
-change. Go 1.23.1 is installed locally under `.tools/go` (with module/build
-caches under `.cache`), which are intentionally Git-ignored; no system-level
-toolchain or Docker is required for those checks.
+`b9be2b1` (`feat: complete task assignment flow`) enables **Tasks** in Project
+Workspace and adds a Kanban board, task create/status moves, task detail,
+comments, self-assignment, current-task action, incoming assignment inbox,
+and accept/decline flow. Both commits are local checkpoints only.
+
+#### Uncommitted work currently present
+
+- Project detail now includes each member's Current Task title only when it
+  belongs to that Project; it is rendered on Overview and the Members list.
+- Task detail provides an assign-to-another-member selector. Assigning another
+  member creates a persistent request; their Tasks inbox accepts or declines
+  it. Self-assignment still applies immediately.
+- Every successful Task mutation (creation, status, self-assignment,
+  assignment request/response, Current Task selection, or comment) broadcasts
+  `project.task.changed` to the authoritative current Project members. The
+  event contains only Project/Task IDs; Client reloads its HTTP-authorized
+  board, inbox, and Project detail, so it never applies stale or unauthorized
+  Task payloads from WebSocket state.
+- `internal/task/service_test.go` covers mutation-after-persistence event
+  delivery and failed-mutation non-delivery. `internal/httpapi/tasks_test.go`
+  covers Task endpoint authentication, validation, and response DTOs.
+- `internal/store/postgres/tasks_integration_test.go` is opt-in through
+  `KMJG_TEST_DATABASE_URL` and refuses to run destructive setup unless the
+  current database name contains `test`. It exercises migrations, non-member
+  Task authorization, assignment-response authorization and acceptance, and
+  Current Task's transactional auto-transition/replacement rules against live
+  PostgreSQL.
+- Task creation now exposes the optional Due Date field required by the PRD.
+- `internal/storage` provides a tested opaque-ID filesystem store with atomic
+  no-overwrite publication. `KMJG_FILE_STORAGE_DIR`,
+  `KMJG_MAX_UPLOAD_BYTES`, and `KMJG_MAX_PROJECT_STORAGE_BYTES` are now
+  deployment-configurable. This is foundation only: it is not yet wired into
+  Project Chat metadata/upload/download APIs.
+
+#### Still required before committing the Tasks checkpoint
+
+- Review the combined uncommitted diff and commit the final checkpoint. Do not
+  push unless the user explicitly asks.
+
+#### Verification performed so far
+
+- `npm run build` passed after the task-detail, assignment-inbox, and
+  assign-member UI work.
+- `go test ./...` passed after adding the task assignment inbox endpoint and
+  after the first Current Task Project-detail query implementation.
+- After the real-time slice, focused `go test ./internal/task ./internal/httpapi`
+  and `npm run build` passed. The full Server suite must be re-run immediately
+  before the final commit.
+- **2026-09-25 verification:** a dedicated local PostgreSQL 16 database
+  (`kmjg_hub_test`) was provisioned and the opt-in Task integration test
+  passed. `KMJG_TEST_DATABASE_URL=postgres://kmjg_test:kmjg_test@127.0.0.1:5432/kmjg_hub_test?sslmode=disable`
+  plus `go test -count=1 ./...` passed for the full Server suite. `npm run
+  build` passed for the Client. Tauri `cargo check` passed with project-local
+  Rust stable 1.98.1 after installing the Ubuntu native build dependencies.
+- Go 1.23.1 is installed locally under `.tools/go`; module/build caches are
+  under `.cache`; both paths are intentionally Git-ignored. Use
+  `GOMODCACHE="$PWD/../.cache/go-mod" GOCACHE="$PWD/../.cache/go-build"
+  ../.tools/go/bin/go test ./...` from `server/`.
 
 **Concurrency note for whoever picks this up:** during this session, another
 Claude Code session (`kmjg-hub-af`) was independently working the same
@@ -1232,15 +1292,13 @@ revisited this session:**
 
 ## Known Issues / Blockers
 
-- **Work Status, Current Branch, and Current Task are still not
-  implemented** (Presence itself now is). `docs/ARCHITECTURE.md`
+- **Work Status and Current Branch are still not implemented** (Presence and
+  Project-scoped Current Task now are). `docs/ARCHITECTURE.md`
   "Presence and Work Status Architecture" keeps these as separate, larger
   pieces of work — Work Status needs its own activity-detection design and
   explicit user Start/Stop controls; Current Branch needs the Tauri native
-  layer to read local Git state; Current Task needs the Tasks feature to
-  exist at all. Members/Member Detail now say so narrowly and honestly
-  rather than lumping them in with "presence isn't implemented," which is
-  no longer true.
+  layer to read local Git state. Members/Member Detail show Current Task data
+  only for the corresponding Project, avoiding cross-Project leakage.
 - **No server-side WebSocket connection-attempt rate limiting** (see
   Implementation Decisions above) — accepted gap for current target scale.
 - **WebSocket server-initiated closes don't send a graceful close frame**
@@ -1255,25 +1313,25 @@ revisited this session:**
   verification is therefore build-correctness (`tsc`) plus the live
   two-tab browser walkthrough above, not automated tests.
 - **Project Chat file attachments are not implemented.** The text timeline
-  says so explicitly. Attachments require the still-undefined Server storage
-  backend, upload/download endpoints, configurable size/quota limits, and
-  deletion lifecycle integration.
+  says so explicitly. The Server storage backend and configurable size/quota
+  limits now exist, but metadata migrations, upload/download endpoints, and
+  deletion lifecycle integration remain.
 - **Project Chat exposes only the latest 50 messages and has no Load Older
   action yet.** The data remains stored; this is a history-navigation gap, not
   message loss.
-- This session's environment has no Docker, Podman, `psql`, or PostgreSQL
-  server binary, so migrations `0003` through `0005` and their repository SQL
-  still need one live-PostgreSQL verification before deployment.
+- Docker, PostgreSQL 16 and Cargo/Rust are installed locally. The agent
+  sandbox cannot access Docker's socket because it strips the `docker`
+  supplementary group, but a dedicated host PostgreSQL test database is
+  available and Task migrations/repository behavior have been verified there.
 
 ## Next Steps
 
-1. **Tasks** remains self-contained and HTTP-API-shaped like Projects was —
-   doesn't strictly need the real-time layer to be useful, though task
-   assignment notifications could use it once it exists.
+1. **Commit Tasks** after reviewing the combined dirty worktree; PostgreSQL,
+   full Server, Client, and Tauri verification are no longer blockers.
 2. **Project Chat attachments and older-history pagination** should follow as
    a storage/history enhancement once Server storage limits and backend are
    defined; do not put file bytes in PostgreSQL by default.
-3. **Work Status / Current Branch / Current Task** is the natural
+3. **Work Status / Current Branch** is the natural
    continuation of this checkpoint specifically (same architecture
    section, same UX sections in Members/Profile) but is a genuinely
    separate design problem (automatic activity detection rules, manual

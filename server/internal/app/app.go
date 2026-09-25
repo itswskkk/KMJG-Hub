@@ -23,6 +23,7 @@ import (
 	"github.com/itswskkk/KMJG-Hub/server/internal/presence"
 	"github.com/itswskkk/KMJG-Hub/server/internal/project"
 	"github.com/itswskkk/KMJG-Hub/server/internal/realtime"
+	"github.com/itswskkk/KMJG-Hub/server/internal/storage"
 	"github.com/itswskkk/KMJG-Hub/server/internal/store/postgres"
 	"github.com/itswskkk/KMJG-Hub/server/internal/task"
 )
@@ -45,6 +46,7 @@ type App struct {
 	Pool     *pgxpool.Pool
 	Router   http.Handler
 	Realtime *realtime.Hub
+	Storage  storage.Store
 
 	// cancel stops every background goroutine App started (or that started
 	// goroutines on App's behalf, such as the Hub's internal transition
@@ -66,6 +68,10 @@ type App struct {
 // New connects to PostgreSQL, applies pending migrations, and wires the
 // application services and HTTP router.
 func New(ctx context.Context, cfg config.Config) (*App, error) {
+	fileStore, err := storage.NewLocal(cfg.FileStorageDir)
+	if err != nil {
+		return nil, fmt.Errorf("open file storage: %w", err)
+	}
 	pool, err := postgres.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("connect to database: %w", err)
@@ -99,7 +105,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Membership: projectService,
 		Publisher:  &chat.RealtimePublisher{Hub: hub},
 	}
-	taskService := &task.Service{Repo: postgres.NewTaskRepository(pool)}
+	taskService := &task.Service{
+		Repo:       postgres.NewTaskRepository(pool),
+		Membership: projectService,
+		Publisher:  &task.RealtimePublisher{Hub: hub},
+	}
 	hub.OnUserOnline = presenceService.HandleUserOnline
 	hub.OnUserOffline = presenceService.HandleUserOffline
 
@@ -114,7 +124,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	router := httpapi.NewRouter(handlers, cfg.AllowedOrigins)
 
-	a := &App{Pool: pool, Router: router, Realtime: hub, cancel: cancel}
+	a := &App{Pool: pool, Router: router, Realtime: hub, Storage: fileStore, cancel: cancel}
 	a.wg.Add(2)
 	go func() {
 		defer a.wg.Done()

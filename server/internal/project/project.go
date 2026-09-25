@@ -62,10 +62,11 @@ type Summary struct {
 
 // Member is a Project member as shown on the Overview / Members experience.
 type Member struct {
-	UserID   string
-	Username string
-	Role     Role
-	JoinedAt time.Time
+	UserID           string
+	Username         string
+	Role             Role
+	JoinedAt         time.Time
+	CurrentTaskTitle *string
 }
 
 // Detail is a single Project's full data for the Overview screen.

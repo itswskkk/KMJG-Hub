@@ -17,10 +17,10 @@ interface MembersProps {
  * Current Task. Display Name (we only have Username, not a separate
  * Display Name field yet), Role, and — as of this checkpoint — real
  * Presence (docs/ARCHITECTURE.md "Presence and Work Status Architecture")
- * are real data. Work Status/Current Branch/Current Task still depend on
- * features not built yet (Work Status needs its own activity-detection
- * design; Current Branch needs the Tauri native layer; Current Task needs
- * the Tasks feature) — shown as honest notes, not fabricated statuses.
+ * and Project-scoped Current Task are real data. Work Status and Current
+ * Branch still depend on features not built yet (Work Status needs its own
+ * activity-detection design; Current Branch needs the Tauri native layer)
+ * — shown as honest notes, not fabricated statuses.
  *
  * Presence is deliberately shown as a plain dot only once fresh Project
  * presence is known (a presence.snapshot has been received on the current
@@ -31,9 +31,9 @@ interface MembersProps {
  * "Offline State" / docs/UX.md "Offline Experience").
  *
  * "Member Details" (selecting a member) and its four quick actions (Chat,
- * Send File, View Branch, View Current Task) all depend on features this
- * checkpoint doesn't build (Direct Messages, Direct File Transfer, Git,
- * Tasks) and are rendered disabled rather than omitted or faked.
+ * Send File, View Branch) depend on features this checkpoint doesn't build
+ * (Direct Messages, Direct File Transfer, Git) and are rendered disabled
+ * rather than omitted or faked. Current Task is shown as member context.
  */
 function Members({ detail, serverUrl, token, viewerUserId, onMemberRemoved }: MembersProps) {
   const [selected, setSelected] = useState<ProjectMember | null>(null);
@@ -118,7 +118,7 @@ function Members({ detail, serverUrl, token, viewerUserId, onMemberRemoved }: Me
             <button type="button" className="members__row" onClick={() => setSelected(member)}>
               <span className="members__identity">
                 <PresenceDot presence={presence} userId={member.id} />
-                <span className="members__name">{member.username}</span>
+                <span><span className="members__name">{member.username}</span>{member.current_task_title && <small className="members__current-task">Current task: {member.current_task_title}</small>}</span>
               </span>
               <span className="members__role">{member.role}</span>
             </button>
@@ -218,7 +218,7 @@ function MemberDetail({ member, presence, canRemove, serverUrl, token, projectId
         </p>
 
         <p className="members__note">
-          Work status, current branch, and current task are not implemented yet.
+          Work status and current branch are not implemented yet.
         </p>
 
         <div className="member-detail__actions">
@@ -231,9 +231,7 @@ function MemberDetail({ member, presence, canRemove, serverUrl, token, projectId
           <button type="button" disabled title="Git integration is not implemented yet">
             View Branch
           </button>
-          <button type="button" disabled title="Tasks are not implemented yet">
-            View Current Task
-          </button>
+          {member.current_task_title && <p className="members__note">Current task: {member.current_task_title}</p>}
           {canRemove && (
             <button type="button" className="member-detail__remove" onClick={() => setConfirmingRemoval(true)}>
               Remove Member

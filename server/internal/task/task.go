@@ -56,6 +56,18 @@ type Repository interface {
 	AddComment(ctx context.Context, projectID, taskID, authorID, body string) (*Comment, error)
 }
 
+// Membership supplies the authoritative audience for a Project event. A
+// caller never chooses WebSocket recipients itself.
+type Membership interface {
+	MemberUserIDs(ctx context.Context, projectID string) ([]string, error)
+}
+
+// Publisher is the narrow real-time capability Tasks needs. The event only
+// identifies a changed resource; Clients reload its Server-authorized state.
+type Publisher interface {
+	PublishTaskChanged(userID, projectID, taskID string)
+}
+
 type ValidationError struct{ Field, Message string }
 
 func (e *ValidationError) Error() string { return e.Message }

@@ -18,6 +18,7 @@ import {
   TaskStatus,
 } from "../../lib/apiClient";
 import "./ProjectTasks.css";
+import { useProjectTaskEvents } from "../presence/PresenceProvider";
 
 interface Props {
   detail: ProjectDetail;
@@ -37,6 +38,7 @@ function ProjectTasks({ detail, serverUrl, token, viewerUserId, onSessionExpired
   const [tasks, setTasks] = useState<ProjectTask[]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [dueDate, setDueDate] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<ProjectTask | null>(null);
@@ -44,6 +46,7 @@ function ProjectTasks({ detail, serverUrl, token, viewerUserId, onSessionExpired
   const [comment, setComment] = useState("");
   const [savingDetail, setSavingDetail] = useState(false);
   const [requests, setRequests] = useState<TaskAssignmentRequest[]>([]);
+  const taskEvents = useProjectTaskEvents(detail.id);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,12 +63,30 @@ function ProjectTasks({ detail, serverUrl, token, viewerUserId, onSessionExpired
 
   useEffect(() => { let cancelled = false; listTaskAssignmentRequests(serverUrl, token).then((items) => { if (!cancelled) setRequests(items.filter((item) => item.project_id === detail.id)); }).catch(() => {}); return () => { cancelled = true; }; }, [detail.id, serverUrl, token]);
 
+  useEffect(() => {
+    if (taskEvents.length === 0) return;
+    let cancelled = false;
+    Promise.all([listProjectTasks(serverUrl, token, detail.id), listTaskAssignmentRequests(serverUrl, token)])
+      .then(([items, pending]) => {
+        if (cancelled) return;
+        setTasks(items);
+        setRequests(pending.filter((item) => item.project_id === detail.id));
+        setSelected((current) => current ? items.find((item) => item.id === current.id) ?? null : null);
+      })
+      .catch((err) => { if (!cancelled && isSessionExpired(err)) onSessionExpired(); });
+    return () => { cancelled = true; };
+  }, [taskEvents.length, detail.id, serverUrl, token, onSessionExpired]);
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setCreating(true); setError(null);
     try {
-      const task = await createProjectTask(serverUrl, token, detail.id, { title, description });
-      setTasks((items) => [...items, task]); setTitle(""); setDescription("");
+      const task = await createProjectTask(serverUrl, token, detail.id, {
+        title,
+        description,
+        due_date: dueDate ? new Date(`${dueDate}T00:00:00.000Z`).toISOString() : null,
+      });
+      setTasks((items) => [...items, task]); setTitle(""); setDescription(""); setDueDate("");
     } catch (err) {
       if (isSessionExpired(err)) onSessionExpired();
       else setError(err instanceof ApiError ? err.message : "Could not create task.");
@@ -102,10 +123,11 @@ function ProjectTasks({ detail, serverUrl, token, viewerUserId, onSessionExpired
   const assignSelf = async () => {
     if (!selected) return;
     setSavingDetail(true); setError(null);
-    try { replaceTask(await assignProjectTask(serverUrl, token, detail.id, selected.id, viewerUserId)); }
+    try { const result = await assignProjectTask(serverUrl, token, detail.id, selected.id, viewerUserId); if ("assignment_request_id" in result) throw new Error("Unexpected assignment request"); replaceTask(result); }
     catch (err) { if (isSessionExpired(err)) onSessionExpired(); else setError(err instanceof ApiError ? err.message : "Could not assign this task."); }
     finally { setSavingDetail(false); }
   };
+  const assignMember = async (assigneeId: string) => { if (!selected || !assigneeId) return; setSavingDetail(true); try { const result = await assignProjectTask(serverUrl, token, detail.id, selected.id, assigneeId); if ("assignment_request_id" in result) setError("Assignment request sent."); else replaceTask(result); } catch (err) { setError(err instanceof ApiError ? err.message : "Assignment request could not be sent."); } finally { setSavingDetail(false); } };
 
   const setCurrent = async () => {
     if (!selected) return;
@@ -129,6 +151,7 @@ function ProjectTasks({ detail, serverUrl, token, viewerUserId, onSessionExpired
     <form className="project-tasks__new" onSubmit={submit}>
       <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} required placeholder="New task title" aria-label="New task title" />
       <input value={description} onChange={(e) => setDescription(e.target.value)} maxLength={10000} placeholder="Description (optional)" aria-label="Task description" />
+      <label className="project-tasks__due-date">Due date (optional)<input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></label>
       <button type="submit" disabled={creating}>{creating ? "Creating…" : "+ New Task"}</button>
     </form>
     {error && <p className="project-tasks__error" role="alert">{error}</p>}
@@ -154,6 +177,7 @@ function ProjectTasks({ detail, serverUrl, token, viewerUserId, onSessionExpired
       {selected.due_date && <p><strong>Due:</strong> {new Date(selected.due_date).toLocaleDateString()}</p>}
       <div className="task-detail__actions">
         {!selected.assignee_id && <button type="button" disabled={savingDetail} onClick={() => void assignSelf()}>Assign to me</button>}
+        {!selected.assignee_id && <label>Assign member<select defaultValue="" disabled={savingDetail} onChange={(e) => void assignMember(e.target.value)}><option value="" disabled>Select a member</option>{detail.members.filter((member) => member.id !== viewerUserId).map((member) => <option key={member.id} value={member.id}>{member.username}</option>)}</select></label>}
         {selected.assignee_id === viewerUserId && <button type="button" disabled={savingDetail} onClick={() => void setCurrent()}>Set as Current Task</button>}
       </div>
       <h4>Comments</h4>

@@ -4,6 +4,7 @@ import Overview from "./Overview";
 import Members from "./Members";
 import ProjectChat from "./ProjectChat";
 import ProjectTasks from "./ProjectTasks";
+import { useProjectTaskEvents } from "../presence/PresenceProvider";
 import "./ProjectWorkspace.css";
 
 interface ProjectWorkspaceProps {
@@ -34,6 +35,7 @@ function ProjectWorkspace({
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [section, setSection] = useState<Section>("overview");
+  const taskEvents = useProjectTaskEvents(projectId);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +65,19 @@ function ProjectWorkspace({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverUrl, token, projectId]);
+
+  // Current Task is part of Project detail. A task event is only a hint;
+  // reload the detail so Overview and Members reflect Server state.
+  useEffect(() => {
+    if (taskEvents.length === 0) return;
+    let cancelled = false;
+    getProject(serverUrl, token, projectId)
+      .then((d) => { if (!cancelled) setDetail(d); })
+      .catch((err) => {
+        if (!cancelled && isSessionExpired(err)) onSessionExpired();
+      });
+    return () => { cancelled = true; };
+  }, [taskEvents.length, serverUrl, token, projectId, onSessionExpired]);
 
   return (
     <div className="project-workspace">

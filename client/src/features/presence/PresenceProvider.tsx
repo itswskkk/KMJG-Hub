@@ -5,6 +5,7 @@ import {
   PresenceUpdatedEvent,
   ProjectMessageDeletedEvent,
   ProjectMessageEvent,
+  ProjectTaskChangedEvent,
   RealtimeClient,
   toWebSocketUrl,
 } from "../../lib/realtimeClient";
@@ -24,13 +25,14 @@ interface PresenceState {
   // never set this (see useProjectPresence's `ready`).
   readyProjects: Record<string, boolean>;
   chatEvents: ChatRealtimeEvent[];
+  taskEvents: ProjectTaskChangedEvent[];
 }
 
 export type ChatRealtimeEvent =
   | { type: "created"; data: ProjectMessageEvent }
   | { type: "deleted"; data: ProjectMessageDeletedEvent };
 
-const initialState: PresenceState = { connectionStatus: "closed", projects: {}, readyProjects: {}, chatEvents: [] };
+const initialState: PresenceState = { connectionStatus: "closed", projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [] };
 
 const PresenceStateContext = createContext<PresenceState>(initialState);
 
@@ -79,7 +81,7 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
               // that next connection's own "connected" must not make this
               // stale (or, for a brand-new project, absent) data look
               // current again.
-              { connectionStatus, projects: {}, readyProjects: {}, chatEvents: [] },
+              { connectionStatus, projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [] },
         );
       },
       onSnapshot: (data: PresenceSnapshotEvent) => {
@@ -113,6 +115,9 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
           chatEvents: [...prev.chatEvents.slice(-99), { type: "deleted", data }],
         }));
       },
+      onProjectTaskChanged: (data) => {
+        setState((prev) => ({ ...prev, taskEvents: [...prev.taskEvents.slice(-99), data] }));
+      },
       onAuthError: () => {
         onSessionExpired?.();
       },
@@ -133,6 +138,16 @@ export function useProjectChatEvents(projectId: string): ChatRealtimeEvent[] {
   return useMemo(
     () => state.chatEvents.filter((event) => event.data.project_id === projectId),
     [projectId, state.chatEvents],
+  );
+}
+
+/** Returns the current connection generation's task-change events for one
+ * Project. Each event is only a reload hint; HTTP remains authoritative. */
+export function useProjectTaskEvents(projectId: string): ProjectTaskChangedEvent[] {
+  const state = useContext(PresenceStateContext);
+  return useMemo(
+    () => state.taskEvents.filter((event) => event.project_id === projectId),
+    [projectId, state.taskEvents],
   );
 }
 

@@ -139,6 +139,7 @@ export interface ProjectMember {
   id: string;
   username: string;
   role: string;
+  current_task_title: string | null;
 }
 
 export interface ProjectDetail {
@@ -273,7 +274,7 @@ export function createProjectTask(
   serverUrl: string,
   token: string,
   projectId: string,
-  input: { title: string; description: string },
+  input: { title: string; description: string; due_date: string | null },
 ): Promise<ProjectTask> {
   return request<ProjectTask>(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/tasks`, {
     method: "POST", headers: authHeaders(token), body: JSON.stringify(input),
@@ -288,7 +289,7 @@ export function setProjectTaskStatus(
   });
 }
 
-export function assignProjectTask(serverUrl: string, token: string, projectId: string, taskId: string, assigneeId: string): Promise<ProjectTask> {
+export function assignProjectTask(serverUrl: string, token: string, projectId: string, taskId: string, assigneeId: string): Promise<ProjectTask | { assignment_request_id: string; status: string }> {
   return request<ProjectTask>(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/assign`, {
     method: "POST", headers: authHeaders(token), body: JSON.stringify({ assignee_id: assigneeId }),
   });
