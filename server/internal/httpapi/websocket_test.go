@@ -304,7 +304,10 @@ func TestWebSocketRejectsOversizedMessage(t *testing.T) {
 	conn := dial(t, server)
 	huge := strings.Repeat("a", 8192) // larger than the server's read limit
 	if err := conn.WriteJSON(map[string]any{"type": "auth", "data": map[string]string{"token": huge}}); err != nil {
-		t.Fatalf("write: %v", err)
+		// SetReadLimit may reject the frame and close the TCP connection before
+		// the client has finished writing it. A peer-close write error is the
+		// same successful rejection this test is asserting.
+		return
 	}
 
 	expectClosed(t, conn)

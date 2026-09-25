@@ -1,10 +1,14 @@
-import { useState } from "react";
-import { ProjectDetail, ProjectMember } from "../../lib/apiClient";
+import { FormEvent, useEffect, useState } from "react";
+import { ApiError, DirectInvitation, InviteCredential, ProjectDetail, ProjectMember, cancelInvitation, createDirectInvitation, createInviteCredential, listInviteCredentials, listProjectInvitations, removeProjectMember, revokeInviteCredential } from "../../lib/apiClient";
 import { ProjectPresence, useProjectPresence } from "../presence/PresenceProvider";
 import "./Members.css";
 
 interface MembersProps {
   detail: ProjectDetail;
+  serverUrl: string;
+  token: string;
+  viewerUserId: string;
+  onMemberRemoved: (userId: string) => void;
 }
 
 /**
@@ -31,13 +35,79 @@ interface MembersProps {
  * checkpoint doesn't build (Direct Messages, Direct File Transfer, Git,
  * Tasks) and are rendered disabled rather than omitted or faked.
  */
-function Members({ detail }: MembersProps) {
+function Members({ detail, serverUrl, token, viewerUserId, onMemberRemoved }: MembersProps) {
   const [selected, setSelected] = useState<ProjectMember | null>(null);
   const presence = useProjectPresence(detail.id);
+  const [recipient, setRecipient] = useState("");
+  const [expiresIn, setExpiresIn] = useState("7d");
+  const [pending, setPending] = useState<DirectInvitation[]>([]);
+  const [invitationError, setInvitationError] = useState<string | null>(null);
+  const [credentials, setCredentials] = useState<InviteCredential[]>([]);
+  const [credentialExpiration, setCredentialExpiration] = useState("7d");
+  const [maxUses, setMaxUses] = useState("1");
+  const [unlimitedUses, setUnlimitedUses] = useState(false);
+  const [newCode, setNewCode] = useState<string | null>(null);
+  const canInvite = detail.role === "owner" || detail.role === "admin";
+
+  useEffect(() => {
+    if (!canInvite) return;
+    Promise.all([listProjectInvitations(serverUrl, token, detail.id), listInviteCredentials(serverUrl, token, detail.id)])
+      .then(([direct, shareable]) => { setPending(direct); setCredentials(shareable); })
+      .catch((err) => setInvitationError(err instanceof ApiError ? err.message : "Could not load invitations."));
+  }, [canInvite, detail.id, serverUrl, token]);
+
+  async function invite(event: FormEvent) {
+    event.preventDefault(); setInvitationError(null);
+    try {
+      const item = await createDirectInvitation(serverUrl, token, detail.id, recipient.trim(), expiresIn);
+      setPending((current) => [item, ...current]); setRecipient("");
+    } catch (err) { setInvitationError(err instanceof ApiError ? err.message : "Could not send invitation."); }
+  }
+
+  async function cancel(item: DirectInvitation) {
+    try { await cancelInvitation(serverUrl, token, detail.id, item.id); setPending((current) => current.filter((entry) => entry.id !== item.id)); }
+    catch (err) { setInvitationError(err instanceof ApiError ? err.message : "Could not cancel invitation."); }
+  }
+
+  async function createShareableInvite(event: FormEvent) {
+    event.preventDefault(); setInvitationError(null); setNewCode(null);
+    try {
+      const item = await createInviteCredential(serverUrl, token, detail.id, credentialExpiration, unlimitedUses ? null : Number(maxUses));
+      setCredentials((current) => [item, ...current]); setNewCode(item.code ?? null);
+    } catch (err) { setInvitationError(err instanceof ApiError ? err.message : "Could not create invite code."); }
+  }
+
+  async function revoke(item: InviteCredential) {
+    try { await revokeInviteCredential(serverUrl, token, detail.id, item.id); setCredentials((current) => current.filter((entry) => entry.id !== item.id)); }
+    catch (err) { setInvitationError(err instanceof ApiError ? err.message : "Could not revoke invite."); }
+  }
 
   return (
     <div className="members">
       <h1>Members</h1>
+      {canInvite && (
+        <section className="members__invitations">
+          <h2>Invite a Member</h2>
+          <form onSubmit={invite} className="members__invite-form">
+            <input aria-label="Username or email" placeholder="Username or email" value={recipient} onChange={(event) => setRecipient(event.target.value)} required />
+            <select aria-label="Invitation expiration" value={expiresIn} onChange={(event) => setExpiresIn(event.target.value)}>
+              <option value="1h">1 hour</option><option value="1d">1 day</option><option value="7d">7 days</option><option value="30d">30 days</option><option value="never">Never</option>
+            </select>
+            <button type="submit">Send Invitation</button>
+          </form>
+          {invitationError && <p className="member-detail__error" role="alert">{invitationError}</p>}
+          {pending.map((item) => <div className="members__pending" key={item.id}><span>{item.recipient_username}</span><button type="button" onClick={() => cancel(item)}>Cancel</button></div>)}
+          <h2>Invite Link or Code</h2>
+          <form onSubmit={createShareableInvite} className="members__invite-form">
+            <select aria-label="Link expiration" value={credentialExpiration} onChange={(event) => setCredentialExpiration(event.target.value)}><option value="1h">1 hour</option><option value="1d">1 day</option><option value="7d">7 days</option><option value="30d">30 days</option><option value="never">Never</option></select>
+            <input aria-label="Maximum uses" type="number" min="1" value={maxUses} onChange={(event) => setMaxUses(event.target.value)} disabled={unlimitedUses} required={!unlimitedUses} />
+            <label><input type="checkbox" checked={unlimitedUses} onChange={(event) => setUnlimitedUses(event.target.checked)} /> Unlimited uses</label>
+            <button type="submit">Create Invite</button>
+          </form>
+          {newCode && <div className="members__invite-created"><strong>Code:</strong> <code>{newCode}</code><br /><strong>Link:</strong> <code>{new URL(`/invite/${newCode}`, serverUrl).toString()}</code><p className="members__note">Copy it now; the Server stores only its hash.</p></div>}
+          {credentials.map((item) => <div className="members__pending" key={item.id}><span>{item.uses} / {item.max_uses ?? "∞"} uses</span><button type="button" onClick={() => revoke(item)}>Revoke</button></div>)}
+        </section>
+      )}
       {!presence.ready && (
         <p className="members__note">Connecting to real-time presence…</p>
       )}
@@ -57,10 +127,26 @@ function Members({ detail }: MembersProps) {
       </ul>
 
       {selected && (
-        <MemberDetail member={selected} presence={presence} onClose={() => setSelected(null)} />
+        <MemberDetail
+          member={selected}
+          presence={presence}
+          canRemove={canRemoveMember(detail.role, viewerUserId, selected)}
+          serverUrl={serverUrl}
+          token={token}
+          projectId={detail.id}
+          onRemoved={onMemberRemoved}
+          onClose={() => setSelected(null)}
+        />
       )}
     </div>
   );
+}
+
+function canRemoveMember(viewerRole: string, viewerUserId: string, member: ProjectMember): boolean {
+  if (member.id === viewerUserId || member.role === "owner") {
+    return false;
+  }
+  return viewerRole === "owner" || (viewerRole === "admin" && member.role === "member");
 }
 
 interface PresenceDotProps {
@@ -90,11 +176,33 @@ function PresenceDot({ presence, userId }: PresenceDotProps) {
 interface MemberDetailProps {
   member: ProjectMember;
   presence: ProjectPresence;
+  canRemove: boolean;
+  serverUrl: string;
+  token: string;
+  projectId: string;
+  onRemoved: (userId: string) => void;
   onClose: () => void;
 }
 
-function MemberDetail({ member, presence, onClose }: MemberDetailProps) {
+function MemberDetail({ member, presence, canRemove, serverUrl, token, projectId, onRemoved, onClose }: MemberDetailProps) {
   const online = presence.isOnline(member.id);
+  const [confirmingRemoval, setConfirmingRemoval] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [removalError, setRemovalError] = useState<string | null>(null);
+
+  async function removeMember() {
+    setRemoving(true);
+    setRemovalError(null);
+    try {
+      await removeProjectMember(serverUrl, token, projectId, member.id);
+    } catch (error) {
+      setRemovalError(error instanceof ApiError ? error.message : "Could not remove this member.");
+      setRemoving(false);
+      return;
+    }
+    onRemoved(member.id);
+    onClose();
+  }
 
   return (
     <div className="member-detail__overlay" onClick={onClose}>
@@ -126,7 +234,30 @@ function MemberDetail({ member, presence, onClose }: MemberDetailProps) {
           <button type="button" disabled title="Tasks are not implemented yet">
             View Current Task
           </button>
+          {canRemove && (
+            <button type="button" className="member-detail__remove" onClick={() => setConfirmingRemoval(true)}>
+              Remove Member
+            </button>
+          )}
         </div>
+
+        {confirmingRemoval && (
+          <section className="member-detail__confirm" role="alertdialog" aria-labelledby="remove-member-title">
+            <h3 id="remove-member-title">Remove {member.username} from this Project?</h3>
+            <p>
+              Repository access is not configured for this Project, so this only removes KMJG Hub membership.
+            </p>
+            {removalError && <p className="member-detail__error" role="alert">{removalError}</p>}
+            <div className="member-detail__actions">
+              <button type="button" onClick={() => setConfirmingRemoval(false)} disabled={removing}>
+                Cancel
+              </button>
+              <button type="button" className="member-detail__remove" onClick={removeMember} disabled={removing}>
+                {removing ? "Removing…" : "Remove Member"}
+              </button>
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

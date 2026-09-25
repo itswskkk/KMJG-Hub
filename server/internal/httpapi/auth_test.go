@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/itswskkk/KMJG-Hub/server/internal/auth"
+	"github.com/itswskkk/KMJG-Hub/server/internal/chat"
 	"github.com/itswskkk/KMJG-Hub/server/internal/httpapi"
+	"github.com/itswskkk/KMJG-Hub/server/internal/invitation"
 	"github.com/itswskkk/KMJG-Hub/server/internal/presence"
 	"github.com/itswskkk/KMJG-Hub/server/internal/project"
 	"github.com/itswskkk/KMJG-Hub/server/internal/realtime"
@@ -135,13 +137,15 @@ func newTestRouterWithHandlers() (http.Handler, *httpapi.Handlers, *fakeProjectR
 	}
 	projectRepo := newFakeProjectRepo(users)
 	projectSvc := &project.Service{Repo: projectRepo}
+	invitationSvc := &invitation.Service{Repo: newFakeInvitationRepo(users, projectRepo)}
 
 	hub := realtime.NewHub(context.Background())
 	presenceSvc := &presence.Service{Membership: projectSvc, Hub: hub}
+	chatSvc := &chat.Service{Repo: newFakeChatRepo(users, projectRepo), Membership: projectSvc, Publisher: &chat.RealtimePublisher{Hub: hub}}
 	hub.OnUserOnline = presenceSvc.HandleUserOnline
 	hub.OnUserOffline = presenceSvc.HandleUserOffline
 
-	handlers := &httpapi.Handlers{Auth: authSvc, Projects: projectSvc, Realtime: hub, Presence: presenceSvc}
+	handlers := &httpapi.Handlers{Auth: authSvc, Projects: projectSvc, Invitations: invitationSvc, Chat: chatSvc, Realtime: hub, Presence: presenceSvc}
 	router := httpapi.NewRouter(handlers, []string{"http://localhost:1420"})
 	return router, handlers, projectRepo
 }

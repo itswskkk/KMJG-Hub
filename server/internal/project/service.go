@@ -58,6 +58,41 @@ func (s *Service) GetDetail(ctx context.Context, userID, projectID string) (*Det
 	return s.Repo.GetDetailForUser(ctx, projectID, userID)
 }
 
+// RemoveMember removes targetUserID from projectID when userID's Project
+// role permits it. Leaving a Project is deliberately a separate flow: in
+// particular, an Owner must transfer ownership before leaving.
+func (s *Service) RemoveMember(ctx context.Context, userID, projectID, targetUserID string) error {
+	if userID == targetUserID {
+		return ErrCannotRemoveSelf
+	}
+
+	detail, err := s.Repo.GetDetailForUser(ctx, projectID, userID)
+	if err != nil {
+		return err
+	}
+
+	var targetRole Role
+	found := false
+	for _, member := range detail.Members {
+		if member.UserID == targetUserID {
+			targetRole = member.Role
+			found = true
+			break
+		}
+	}
+	if !found {
+		return ErrNotFound
+	}
+
+	allowed := (detail.ViewerRole == RoleOwner && targetRole != RoleOwner) ||
+		(detail.ViewerRole == RoleAdmin && targetRole == RoleMember)
+	if !allowed {
+		return ErrForbidden
+	}
+
+	return s.Repo.RemoveMember(ctx, projectID, userID, targetUserID)
+}
+
 // ProjectIDsForUser returns the IDs of Projects userID currently belongs
 // to. Satisfies internal/presence.ProjectMembership so the presence system
 // can derive which Projects' member lists should include userID's

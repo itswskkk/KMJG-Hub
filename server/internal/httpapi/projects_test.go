@@ -107,6 +107,37 @@ func (f *fakeProjectRepo) ListMemberUserIDs(_ context.Context, projectID string)
 	return ids, nil
 }
 
+func (f *fakeProjectRepo) RemoveMember(_ context.Context, projectID, actorUserID, targetUserID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	var actorRole, targetRole project.Role
+	actorFound, targetFound := false, false
+	for _, member := range f.members[projectID] {
+		if member.UserID == actorUserID {
+			actorRole, actorFound = member.Role, true
+		}
+		if member.UserID == targetUserID {
+			targetRole, targetFound = member.Role, true
+		}
+	}
+	if !actorFound || !targetFound {
+		return project.ErrNotFound
+	}
+	if !((actorRole == project.RoleOwner && (targetRole == project.RoleAdmin || targetRole == project.RoleMember)) ||
+		(actorRole == project.RoleAdmin && targetRole == project.RoleMember)) {
+		return project.ErrForbidden
+	}
+
+	for i, member := range f.members[projectID] {
+		if member.UserID == targetUserID {
+			f.members[projectID] = append(f.members[projectID][:i], f.members[projectID][i+1:]...)
+			return nil
+		}
+	}
+	return project.ErrNotFound
+}
+
 func (f *fakeProjectRepo) GetDetailForUser(_ context.Context, projectID, userID string) (*project.Detail, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -257,5 +288,70 @@ func TestCreateProjectValidatesName(t *testing.T) {
 	rec := doJSON(t, router, http.MethodPost, "/api/v1/projects", map[string]string{"name": ""}, token)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for empty name, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRemoveProjectMemberEnforcesRolesAndPreservesOwner(t *testing.T) {
+	router, _, projectRepo := newTestRouterWithHandlers()
+
+	register := func(username string) (string, string) {
+		t.Helper()
+		rec := doJSON(t, router, http.MethodPost, "/api/v1/auth/register", map[string]string{
+			"username": username, "email": username + "@example.com", "password": "hunter22222",
+		}, "")
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("register %s: expected 201, got %d: %s", username, rec.Code, rec.Body.String())
+		}
+		var body struct {
+			User struct {
+				ID string `json:"id"`
+			} `json:"user"`
+		}
+		decodeJSON(t, rec, &body)
+		return body.User.ID, extractToken(t, rec)
+	}
+
+	ownerID, ownerToken := register("owner")
+	adminID, adminToken := register("admin")
+	memberID, memberToken := register("member")
+	secondMemberID, _ := register("membertwo")
+
+	createRec := doJSON(t, router, http.MethodPost, "/api/v1/projects", map[string]string{"name": "Team Project"}, ownerToken)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create project: expected 201, got %d: %s", createRec.Code, createRec.Body.String())
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	decodeJSON(t, createRec, &created)
+	projectRepo.addMember(created.ID, adminID, project.RoleAdmin)
+	projectRepo.addMember(created.ID, memberID, project.RoleMember)
+	projectRepo.addMember(created.ID, secondMemberID, project.RoleMember)
+
+	adminRemoveOwner := doJSON(t, router, http.MethodDelete, "/api/v1/projects/"+created.ID+"/members/"+ownerID, nil, adminToken)
+	if adminRemoveOwner.Code != http.StatusForbidden {
+		t.Fatalf("admin removing owner: expected 403, got %d: %s", adminRemoveOwner.Code, adminRemoveOwner.Body.String())
+	}
+	adminRemoveMember := doJSON(t, router, http.MethodDelete, "/api/v1/projects/"+created.ID+"/members/"+secondMemberID, nil, adminToken)
+	if adminRemoveMember.Code != http.StatusNoContent {
+		t.Fatalf("admin removing member: expected 204, got %d: %s", adminRemoveMember.Code, adminRemoveMember.Body.String())
+	}
+	adminRemoveAdmin := doJSON(t, router, http.MethodDelete, "/api/v1/projects/"+created.ID+"/members/"+adminID, nil, ownerToken)
+	if adminRemoveAdmin.Code != http.StatusNoContent {
+		t.Fatalf("owner removing admin: expected 204, got %d: %s", adminRemoveAdmin.Code, adminRemoveAdmin.Body.String())
+	}
+
+	memberRemoveSelf := doJSON(t, router, http.MethodDelete, "/api/v1/projects/"+created.ID+"/members/"+memberID, nil, memberToken)
+	if memberRemoveSelf.Code != http.StatusForbidden {
+		t.Fatalf("member removing self: expected 403, got %d: %s", memberRemoveSelf.Code, memberRemoveSelf.Body.String())
+	}
+
+	ownerRemoveMember := doJSON(t, router, http.MethodDelete, "/api/v1/projects/"+created.ID+"/members/"+memberID, nil, ownerToken)
+	if ownerRemoveMember.Code != http.StatusNoContent {
+		t.Fatalf("owner removing member: expected 204, got %d: %s", ownerRemoveMember.Code, ownerRemoveMember.Body.String())
+	}
+	removedMemberGet := doJSON(t, router, http.MethodGet, "/api/v1/projects/"+created.ID, nil, memberToken)
+	if removedMemberGet.Code != http.StatusNotFound {
+		t.Fatalf("removed member reading project: expected 404, got %d: %s", removedMemberGet.Code, removedMemberGet.Body.String())
 	}
 }

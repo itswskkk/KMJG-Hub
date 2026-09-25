@@ -1,0 +1,18 @@
+.project-chat { display: flex; flex-direction: column; height: calc(100vh - 4rem); min-height: 30rem; }
+.project-chat header h1 { margin: 0; text-align: left; }
+.project-chat header p { margin: 0.25rem 0 1rem; opacity: 0.65; }
+.project-chat__timeline { flex: 1; min-height: 16rem; overflow-y: auto; border: 1px solid rgba(128, 128, 128, 0.25); border-radius: 10px; padding: 1rem; }
+.project-chat__state { text-align: center; opacity: 0.6; margin-top: 3rem; }
+.project-chat__message { padding: 0.75rem 0; border-bottom: 1px solid rgba(128, 128, 128, 0.16); }
+.project-chat__message:last-child { border-bottom: 0; }
+.project-chat__message-header { display: flex; gap: 0.75rem; align-items: baseline; }
+.project-chat__message-header time { opacity: 0.55; font-size: 0.8rem; }
+.project-chat__message p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0.35rem 0 0; }
+.project-chat__delete { margin-left: auto; padding: 0.15rem 0.45rem; box-shadow: none; background: none; color: #b42318; font-size: 0.75rem; }
+.project-chat__composer { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.project-chat__composer textarea { resize: vertical; min-height: 3rem; }
+.project-chat__composer-actions { display: flex; justify-content: flex-end; align-items: center; gap: 0.75rem; }
+.project-chat__composer-actions span { opacity: 0.55; font-size: 0.8rem; }
+.project-chat__composer-actions .project-chat__count--invalid { color: #b42318; opacity: 1; font-weight: 600; }
+.project-chat__error { color: #b42318; }
+.project-chat__attachment-note { opacity: 0.55; font-size: 0.8rem; margin: 0.4rem 0 0; }

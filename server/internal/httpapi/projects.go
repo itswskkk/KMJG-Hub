@@ -121,6 +121,26 @@ func (h *Handlers) handleGetProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toProjectDetailDTO(detail))
 }
 
+func (h *Handlers) handleRemoveProjectMember(w http.ResponseWriter, r *http.Request) {
+	authed := currentAuth(r)
+	err := h.Projects.RemoveMember(r.Context(), authed.User.ID, r.PathValue("id"), r.PathValue("userID"))
+	if err == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	switch {
+	case errors.Is(err, project.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "Project or member not found")
+	case errors.Is(err, project.ErrCannotRemoveSelf):
+		writeError(w, http.StatusForbidden, "cannot_remove_self", "Leave the project using the leave-project flow")
+	case errors.Is(err, project.ErrForbidden):
+		writeError(w, http.StatusForbidden, "forbidden", "You do not have permission to remove this member")
+	default:
+		writeError(w, http.StatusInternalServerError, "internal_error", "Could not remove the project member")
+	}
+}
+
 func writeProjectError(w http.ResponseWriter, err error) {
 	var validationErr *project.ValidationError
 	if errors.As(err, &validationErr) {

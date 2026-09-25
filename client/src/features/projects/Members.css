@@ -2,6 +2,13 @@
   margin-top: 0;
 }
 
+.members__invitations { margin-bottom: 1.5rem; }
+.members__invitations h2 { font-size: 1rem; }
+.members__invite-form { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.members__invite-form input { flex: 1; min-width: 12rem; }
+.members__pending { display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem; padding: 0.5rem; border: 1px solid rgba(128, 128, 128, 0.25); border-radius: 6px; }
+.members__invite-created { margin-top: 0.75rem; padding: 0.75rem; border: 1px solid rgba(74, 125, 252, 0.45); border-radius: 6px; overflow-wrap: anywhere; }
+
 .members__note {
   opacity: 0.6;
   font-size: 0.875rem;
@@ -129,4 +136,30 @@
 .member-detail__actions button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.member-detail__remove {
+  background: #b42318;
+  color: #fff;
+}
+
+.member-detail__confirm {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(128, 128, 128, 0.3);
+}
+
+.member-detail__confirm h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.member-detail__confirm p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.member-detail__error {
+  color: #b42318;
+  margin-top: 0.75rem !important;
 }

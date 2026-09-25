@@ -1,8 +1,12 @@
 ## Resume Here
 
-Last verified commit: `bf29236` (`fix: harden realtime presence lifecycle`)
+Last committed base: `205d7ae` (`docs: update PROGRESS.md for presence freshness/lifecycle fix`)
 Branch: `main`, pushed to `origin/main`.
-Working tree: clean as of this PROGRESS.md commit.
+Working tree: **intentionally dirty** with four verified, uncommitted
+checkpoints: Removing a Project Member, Direct Project Invitations, Invite
+Links/Codes, and Project Chat (text messaging and moderation). Do not discard
+these changes when resuming. No commit or push has been made for Checkpoints
+5–8 yet.
 
 Current implementation state:
 - Connect Server: complete
@@ -12,15 +16,20 @@ Current implementation state:
 - **Presence / Authenticated WebSocket Foundation: complete (commit `ce108ac`)**
 - **Presence Freshness / Server Lifecycle Fix: complete, committed (commit
   `bf29236`) — see "Checkpoint 4 addendum" below**
+- **Removing a Project Member Experience: implementation complete and
+  verified, uncommitted — see Checkpoint 5 below**
+- **Direct Project Invitations: implementation complete and verified,
+  uncommitted — see Checkpoint 6 below**
+- **Invite Links and Codes: implementation complete and verified,
+  uncommitted — see Checkpoint 7 below**
+- **Project Chat (text messages, realtime delivery, and moderation):
+  implementation complete and verified, uncommitted — see Checkpoint 8 below**
 
-No work is currently in progress.
-
-Next checkpoint must be selected by the project owner.
-Current candidates:
-- Removing a Project Member Experience (member management)
-- Tasks
-- Project Chat (now unblocked — the WebSocket/event-envelope foundation exists)
-- Work Status / Current Branch / Current Task
+The next major checkpoint is **Tasks**. Project Chat file attachments remain a
+separate storage checkpoint; the text timeline, history, realtime delivery,
+message deletion, and 30-day cleanup lifecycle now work. Invitation
+notifications and real-time invitation events remain separate enhancements;
+persistent invitation state and all required join paths work through HTTP.
 
 **Concurrency note for whoever picks this up:** during this session, another
 Claude Code session (`kmjg-hub-af`) was independently working the same
@@ -342,6 +351,242 @@ run for this half (no server/protocol files changed).
 
 **Committed and pushed** as `bf29236` (`fix: harden realtime presence
 lifecycle`) on `main`; see "Resume Here" / Git status.
+
+### Checkpoint 5: Removing a Project Member Experience (uncommitted)
+
+**Scope:** implement the KMJG Hub membership-removal portion of
+`docs/UX.md` "Removing a Project Member Experience". Repository access is
+explicitly a separate external Git-provider operation; no Git provider or
+repository model exists yet, so the UI says this removal affects KMJG Hub
+membership only.
+
+**Server:**
+
+- Added authenticated `DELETE /api/v1/projects/{id}/members/{userID}`.
+- `project.Service.RemoveMember` implements the documented role policy:
+  Owner may remove Admin or Member; Admin may remove Member only; no role may
+  remove the Owner. Self-removal is rejected so it cannot bypass the separate
+  Leave Project / ownership-transfer rules.
+- PostgreSQL performs the same role check in the `DELETE ... USING ...`
+  statement, making the authorization decision authoritative at deletion time
+  rather than trusting an earlier service-layer read.
+- The HTTP contract returns `204` on success, `403` for forbidden/self-removal,
+  and `404` for a non-accessible Project or missing member.
+
+**Client:**
+
+- Member Detail exposes `Remove Member` only for actions allowed by the
+  current viewer role; Server authorization remains the security boundary.
+- A confirmation step names the target member and explains that no repository
+  access is changed because Git integration is not configured.
+- On success, the roster updates locally without a second fetch.
+
+**Tests and verification:**
+
+- Added HTTP coverage for Owner/Admin/Member removal rules and for a removed
+  member losing Project access.
+- `go test ./...`, `go test -race ./...`, `go build ./...`, `go vet ./...`,
+  `gofmt -l internal`, `npm run build`, and `git diff --check` all pass.
+- During verification, `TestWebSocketRejectsOversizedMessage` exposed a
+  scheduling-sensitive assertion: a server enforcing its read limit may close
+  the TCP connection before the client completes its oversized write. The test
+  now correctly accepts that peer-close result as rejection, and full/race
+  suites pass after the adjustment.
+- There is still no PostgreSQL integration-test harness in this repo. The
+  parameterized deletion SQL compiles with the Server, but has not run against
+  a live PostgreSQL instance in this checkpoint.
+
+**Changed files:** `server/internal/project/{project.go,service.go,service_test.go}`,
+`server/internal/store/postgres/projects.go`,
+`server/internal/httpapi/{server.go,projects.go,projects_test.go,websocket_test.go}`,
+and `client/src/{App.tsx,lib/apiClient.ts,features/projects/Members.tsx,features/projects/Members.css,features/projects/ProjectWorkspace.tsx}`.
+
+### Checkpoint 6: Direct Project Invitations (uncommitted)
+
+**Scope:** implement Direct Invitations to an existing account on the same
+KMJG Hub Server. Invite Links/Codes, email delivery, notifications, and Git
+repository invitations are explicitly separate features.
+
+**Server and persistence:**
+
+- Migration `0003_project_invitations.sql` adds authoritative invitation
+  state, optional expiration, and mutually exclusive accepted/declined/
+  cancelled terminal timestamps.
+- New `internal/invitation` domain service validates the supported expiration
+  choices (`1h`, `1d`, `7d`, `30d`, `never`) and owns transitions.
+- Owner/Admin can invite an existing username or email; regular Members
+  receive `403`. Self-invites, existing members, and duplicate active invites
+  receive `409`; unknown recipients receive `404`.
+- Recipient-only accept/decline and original-inviter-only cancellation are
+  enforced by PostgreSQL predicates. Accepting inserts Member membership and
+  marks the invitation accepted in one transaction.
+- Creation takes a Project/recipient advisory transaction lock, preventing
+  concurrent requests from both creating active invitations. Acceptance locks
+  the invitation row before checking/inserting membership.
+- API: create/list/cancel under `/api/v1/projects/{id}/invitations`; received
+  list and accept/decline under `/api/v1/invitations`.
+
+**Client:**
+
+- Owner/Admin Members screen has an invite form for username/email, all five
+  expiration choices, active-invitation list, and cancellation.
+- Server Home shows received Direct Invitations with Decline and Accept.
+  Accepting opens the newly joined Project immediately.
+- The confirmed default expiration for a new Direct Invitation is 7 days.
+
+**Tests and verification:**
+
+- Domain tests cover every expiration choice and invalid expiration.
+- HTTP tests cover role denial, create/list, wrong-recipient denial, accept
+  creating usable membership, decline, inviter cancellation, and cancellation
+  denial for another user.
+- `go test ./...`, `go test -race ./...`, `go build ./...`, `go vet ./...`,
+  `gofmt -l internal`, `npm run build`, and `git diff --check` pass.
+- This environment has no Docker, Podman, `psql`, or `postgres` binary, so the
+  new migration/queries could not be executed against live PostgreSQL. The
+  persistence layer is compile-verified; live PostgreSQL remains an explicit
+  verification gap, not silently claimed as passed.
+
+**Changed files:** `server/internal/invitation/*`,
+`server/internal/store/postgres/{invitations.go,migrations/0003_project_invitations.sql}`,
+`server/internal/httpapi/{invitations.go,invitations_test.go,server.go,auth_test.go}`,
+`server/internal/app/app.go`, `client/src/lib/apiClient.ts`,
+`client/src/features/server-home/ServerHome.tsx`, and the Members UI files.
+
+### Checkpoint 7: Invite Links and Codes (uncommitted)
+
+**Scope:** add shareable Project invite credentials that an authenticated user
+can intentionally submit from Server Home to join immediately as Member. A
+single secure credential can be copied as either its code or the displayed
+link; both resolve to the same Server-authoritative resource.
+
+**Security and persistence:**
+
+- Migration `0004_project_invite_credentials.sql` stores Project/creator,
+  optional expiration, optional maximum uses, current use count, revocation,
+  and a unique SHA-256 token hash. Raw invite secrets are never persisted.
+- Secrets are 32 random bytes from `crypto/rand`, encoded URL-safe. The raw
+  code is returned only on creation; list responses cannot recover or expose
+  it.
+- Owner/Admin can create, list, and revoke credentials. Members receive `403`.
+- Credential consumption locks the credential row, rechecks revoked/expired/
+  exhausted state, rejects existing members, inserts membership, and increments
+  the use count in one transaction. This prevents concurrent joins from
+  exceeding `max_uses`.
+- Specific API errors distinguish invalid, expired, revoked, exhausted, and
+  already-member cases.
+
+**API and Client:**
+
+- Project endpoints create/list/revoke under
+  `/api/v1/projects/{id}/invite-credentials`; authenticated join is
+  `POST /api/v1/invitations/join` with either a raw code or displayed link.
+- Members UI lets Owner/Admin choose expiration, positive max uses or
+  unlimited uses, create a code/link, view active use counts, and revoke.
+- Server Home's previously disabled Join Project control is now a real
+  link/code input. Successful join opens the Project immediately.
+- Confirmed UI defaults are 7-day expiration and one use.
+
+**Tests and verification:**
+
+- Domain tests verify cryptographic secret generation, hash-only persistence,
+  URL parsing, supported expiration choices, and invalid use limits.
+- HTTP tests cover manager authorization, invalid limits, raw-secret omission
+  from lists, already-member rejection, link consumption, maximum-use
+  exhaustion, revocation, and post-join Project access.
+- `go test ./...`, `go test -race ./...`, `go build ./...`, `go vet ./...`,
+  `gofmt -l internal`, `npm run build`, and `git diff --check` are the required
+  final gates for this combined working tree.
+- As in Checkpoint 6, this environment has no PostgreSQL/container runtime;
+  live migration/query execution remains unavailable and must be run in an
+  environment with PostgreSQL before deployment.
+
+**Changed files:** `server/internal/invitation/*`,
+`server/internal/store/postgres/{invitations.go,migrations/0004_project_invite_credentials.sql}`,
+`server/internal/httpapi/{invitations.go,invitations_test.go,server.go}`,
+`client/src/lib/apiClient.ts`, `client/src/features/projects/Members.tsx`,
+`client/src/features/projects/Members.css`, and
+`client/src/features/server-home/ServerHome.tsx`.
+
+### Checkpoint 8: Project Chat — Text, Realtime, and Moderation (uncommitted)
+
+**Scope:** implement the usable text-message core of the one primary Project
+Chat specified for v1: persistent recent history, sending, authorized realtime
+delivery, and soft-deletion/moderation. Project Chat file attachments are
+explicitly not included because no Server storage backend or operator upload
+limits exist yet; the Client labels that limitation instead of presenting a
+non-functional attachment control.
+
+**Server and persistence:**
+
+- Migration `0005_project_chat.sql` adds Project-scoped, user-authored messages,
+  a bounded 4,000-character body, creation metadata, and soft-deletion metadata.
+  Normal history queries never return soft-deleted content.
+- New `internal/chat` domain service validates and persists a message before
+  publishing `project.message.created`. It derives every realtime recipient
+  from current Server-owned Project membership; a Client cannot choose the
+  broadcast audience.
+- Authenticated endpoints under
+  `/api/v1/projects/{id}/chat/messages` list the latest 50 active messages,
+  create one message, and delete one message.
+- Create and history access require current membership. The PostgreSQL create
+  statement makes the membership check part of the insert, and the history
+  query rechecks membership while reading so a concurrent removal cannot expose
+  Project messages.
+- A sender may delete their own message. Owner/Admin may delete another user's
+  Project Chat message for moderation. Regular Members receive `403`; missing,
+  inaccessible, malformed, and already-deleted resources collapse to `404`.
+  PostgreSQL performs role authorization and soft deletion in one statement.
+- Successful deletion publishes `project.message.deleted` only to current
+  members. An App-owned retention sweep runs at startup and hourly, permanently
+  removing messages whose documented 30-day soft-deletion window has elapsed;
+  shutdown cancels and waits for it before closing the database pool.
+
+**Client:**
+
+- Chat is now an enabled Project Workspace section with a scrollable timeline,
+  empty/loading/error states, author and local timestamp, multiline composer,
+  Enter-to-send (Shift+Enter for newline), and a Unicode-code-point counter that
+  matches Server validation.
+- HTTP history is authoritative after opening/reconnecting. Typed WebSocket
+  create/delete events update the open timeline immediately; message IDs are
+  deduplicated so the sender cannot get a duplicate from its HTTP response and
+  its own realtime event.
+- Delete actions appear only for the message author or Owner/Admin and require
+  the confirmation described by `docs/UX.md`; the Server independently enforces
+  the real permission.
+- The realtime provider bounds its in-memory Chat event buffer to 100 events and
+  clears it across connection generations. Missed events are repaired by HTTP
+  history rather than treating WebSocket delivery as authoritative storage.
+
+**Tests and verification:**
+
+- Domain tests cover trimming/validation, exact 4,000-code-point Unicode input,
+  persist-before-publish failure behavior, bounded history retrieval, delete
+  publish behavior, and the 30-day purge cutoff.
+- HTTP/integration tests cover send/list, non-member denial, empty-message
+  rejection, Member-vs-Owner deletion permissions, deleted-content hiding, and
+  real WebSocket create/delete delivery to a current member without leaking the
+  create event to an outsider.
+- `go test -race ./...`, `go build ./...`, `go vet ./...`, `gofmt -l internal`,
+  `npm run build`, and `git diff --check` all pass. Project Chat domain/HTTP
+  tests also passed 20 consecutive runs.
+- This environment has no Docker, Podman, `psql`, or PostgreSQL server binary.
+  Migration `0005` and the PostgreSQL Chat queries are compile-verified but have
+  not been executed against a live PostgreSQL instance. This remains required
+  before deployment.
+
+**Confirmed product values:** Project Chat accepts up to 4,000 characters,
+loads the latest 50 messages initially, and runs deleted-message retention
+cleanup at startup plus hourly. These are no longer tracked as open
+assumptions.
+
+**Changed files:** `server/internal/chat/*`,
+`server/internal/store/postgres/{chat.go,migrations/0005_project_chat.sql}`,
+`server/internal/httpapi/{chat.go,chat_test.go,server.go,auth_test.go}`,
+`server/internal/app/app.go`, `client/src/lib/{apiClient.ts,realtimeClient.ts}`,
+`client/src/features/presence/PresenceProvider.tsx`, and
+`client/src/features/projects/{ProjectChat.tsx,ProjectChat.css,ProjectWorkspace.tsx,ProjectWorkspace.css}`.
 
 ## Completed (previous checkpoints)
 
@@ -978,12 +1223,6 @@ revisited this session:**
   exist at all. Members/Member Detail now say so narrowly and honestly
   rather than lumping them in with "presence isn't implemented," which is
   no longer true.
-- **"Removing a Project Member Experience" is still not implemented**
-  (unchanged from the Members checkpoint).
-- **Join Project (invite links/codes) is still not implemented.** This
-  remains the reason multi-member verification requires manual test data —
-  see the live verification notes above for exactly what was done and why
-  it's safe (temporary Postgres row, no code/schema change).
 - **No server-side WebSocket connection-attempt rate limiting** (see
   Implementation Decisions above) — accepted gap for current target scale.
 - **WebSocket server-initiated closes don't send a graceful close frame**
@@ -997,40 +1236,33 @@ revisited this session:**
   gap noted in every previous checkpoint) — this checkpoint's client-side
   verification is therefore build-correctness (`tsc`) plus the live
   two-tab browser walkthrough above, not automated tests.
-- The dev Postgres volume from previous checkpoints (`korn_<timestamp>` /
-  `meran_<timestamp>`, "KMJG Hub Development" / "Game Center") was **not
-  used or touched this session** — this session's environment had no
-  Docker available (see Tests section) and used a separate, freshly
-  initialized local PostgreSQL instance instead, with its own throwaway
-  test accounts. Both may exist in different environments; neither is
-  shared/production data.
+- **Project Chat file attachments are not implemented.** The text timeline
+  says so explicitly. Attachments require the still-undefined Server storage
+  backend, upload/download endpoints, configurable size/quota limits, and
+  deletion lifecycle integration.
+- **Project Chat exposes only the latest 50 messages and has no Load Older
+  action yet.** The data remains stored; this is a history-navigation gap, not
+  message loss.
+- This session's environment has no Docker, Podman, `psql`, or PostgreSQL
+  server binary, so migrations `0003` through `0005` and their repository SQL
+  still need one live-PostgreSQL verification before deployment.
 
 ## Next Steps
 
-1. **Removing a Project Member Experience** (`docs/UX.md`) — needs:
-   `DELETE /api/v1/projects/{id}/members/{userId}` (or similar) with
-   server-side role authorization, confirmation UI, and correct 403/404
-   handling. Unblocked and unrelated to this checkpoint; can proceed
-   independently.
-2. **Project Chat** is now meaningfully more tractable than before this
-   checkpoint: the authenticated WebSocket connection, the typed envelope
-   protocol (`{v, type, data}`), and the `realtime.Hub` connection registry
-   all already exist and were deliberately kept generic enough to carry a
-   `chat.message.created`-shaped event without redesigning `internal/realtime`.
-   The authorization pattern presence established (a narrow
-   `ProjectMembership`-style interface deriving the audience server-side,
-   never trusting a Client-supplied Project ID) should be reused directly.
-3. **Tasks** remains self-contained and HTTP-API-shaped like Projects was —
+1. **Tasks** remains self-contained and HTTP-API-shaped like Projects was —
    doesn't strictly need the real-time layer to be useful, though task
    assignment notifications could use it once it exists.
-4. **Work Status / Current Branch / Current Task** is the natural
+2. **Project Chat attachments and older-history pagination** should follow as
+   a storage/history enhancement once Server storage limits and backend are
+   defined; do not put file bytes in PostgreSQL by default.
+3. **Work Status / Current Branch / Current Task** is the natural
    continuation of this checkpoint specifically (same architecture
    section, same UX sections in Members/Profile) but is a genuinely
    separate design problem (automatic activity detection rules, manual
    override precedence, Tauri native Git integration for branch detection)
    and was explicitly out of scope here.
-5. Session persistence (SQLite via Tauri + OS credential storage) is still
+4. Session persistence (SQLite via Tauri + OS credential storage) is still
    deferred — bundle it with "Saved Servers" persistence when the Tauri
    native layer work starts, as noted in every previous checkpoint.
-6. Confirm with the project owner before starting any of the above — this
+5. Confirm with the project owner before starting any of the above — this
    PROGRESS.md shouldn't be the thing deciding product sequencing.

@@ -75,7 +75,7 @@ button.project-workspace__nav-item--active:hover {
   flex: 1;
   box-sizing: border-box;
   padding: 2rem;
-  max-width: 640px;
+  max-width: 900px;
 }
 
 .project-workspace__error {

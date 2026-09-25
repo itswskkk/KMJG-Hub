@@ -25,6 +25,14 @@ import (
 // non-members.
 var ErrNotFound = errors.New("project: not found")
 
+// ErrForbidden is returned when a project member is not allowed to perform
+// a project-level operation.
+var ErrForbidden = errors.New("project: forbidden")
+
+// ErrCannotRemoveSelf keeps member removal separate from the Leave Project
+// flow, whose Owner-specific ownership-transfer rule is different.
+var ErrCannotRemoveSelf = errors.New("project: cannot remove self")
+
 // Role is a Project-level role, per docs/PRD.md "Roles and Permissions".
 type Role string
 
@@ -89,4 +97,10 @@ type Repository interface {
 	// docs/ARCHITECTURE.md "Event Authorization", never from a
 	// Client-supplied Project ID alone.
 	ListMemberUserIDs(ctx context.Context, projectID string) ([]string, error)
+
+	// RemoveMember removes targetUserID only when actorUserID still has the
+	// necessary role at the time of deletion. The repository must make this
+	// authorization check part of the authoritative delete, not rely solely
+	// on an earlier read in the service layer.
+	RemoveMember(ctx context.Context, projectID, actorUserID, targetUserID string) error
 }

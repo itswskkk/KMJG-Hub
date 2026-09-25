@@ -8,6 +8,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -15,8 +16,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/itswskkk/KMJG-Hub/server/internal/auth"
+	"github.com/itswskkk/KMJG-Hub/server/internal/chat"
 	"github.com/itswskkk/KMJG-Hub/server/internal/config"
 	"github.com/itswskkk/KMJG-Hub/server/internal/httpapi"
+	"github.com/itswskkk/KMJG-Hub/server/internal/invitation"
 	"github.com/itswskkk/KMJG-Hub/server/internal/presence"
 	"github.com/itswskkk/KMJG-Hub/server/internal/project"
 	"github.com/itswskkk/KMJG-Hub/server/internal/realtime"
@@ -31,6 +34,10 @@ import (
 // handled immediately elsewhere (see httpapi.handleLogout); this sweep is
 // the bounded-delay fallback for everything else.
 const sessionSweepInterval = 60 * time.Second
+
+// ASSUMPTION A-260925-6: an hourly sweep (plus one at startup) is the
+// product-acceptable precision for the 30-day deletion lifecycle.
+const chatRetentionSweepInterval = time.Hour
 
 // App holds the running application's dependencies.
 type App struct {
@@ -77,6 +84,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	projectService := &project.Service{
 		Repo: postgres.NewProjectRepository(pool),
 	}
+	invitationService := &invitation.Service{Repo: postgres.NewInvitationRepository(pool)}
 
 	// appCtx is App's own child of ctx: it lets Close stop App's background
 	// work unconditionally, rather than depending on ctx ever being
@@ -85,25 +93,56 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	hub := realtime.NewHub(appCtx)
 	presenceService := &presence.Service{Membership: projectService, Hub: hub}
+	chatService := &chat.Service{
+		Repo:       postgres.NewChatRepository(pool),
+		Membership: projectService,
+		Publisher:  &chat.RealtimePublisher{Hub: hub},
+	}
 	hub.OnUserOnline = presenceService.HandleUserOnline
 	hub.OnUserOffline = presenceService.HandleUserOffline
 
 	handlers := &httpapi.Handlers{
-		Auth:     authService,
-		Projects: projectService,
-		Realtime: hub,
-		Presence: presenceService,
+		Auth:        authService,
+		Projects:    projectService,
+		Invitations: invitationService,
+		Chat:        chatService,
+		Realtime:    hub,
+		Presence:    presenceService,
 	}
 	router := httpapi.NewRouter(handlers, cfg.AllowedOrigins)
 
 	a := &App{Pool: pool, Router: router, Realtime: hub, cancel: cancel}
-	a.wg.Add(1)
+	a.wg.Add(2)
 	go func() {
 		defer a.wg.Done()
 		runSessionSweep(appCtx, hub, authService)
 	}()
+	go func() {
+		defer a.wg.Done()
+		runChatRetentionSweep(appCtx, chatService)
+	}()
 
 	return a, nil
+}
+
+func runChatRetentionSweep(ctx context.Context, chatService *chat.Service) {
+	cleanup := func() {
+		if err := chatService.PurgeExpiredDeleted(ctx, time.Now().UTC()); err != nil && ctx.Err() == nil {
+			slog.Error("app: purge expired deleted Project Chat messages", "error", err)
+		}
+	}
+	cleanup()
+
+	ticker := time.NewTicker(chatRetentionSweepInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cleanup()
+		}
+	}
 }
 
 // runSessionSweep periodically closes any open WebSocket connection whose

@@ -1,8 +1,10 @@
-import { createContext, ReactNode, useContext, useEffect, useState } from "react";
+import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import {
   ConnectionStatus,
   PresenceSnapshotEvent,
   PresenceUpdatedEvent,
+  ProjectMessageDeletedEvent,
+  ProjectMessageEvent,
   RealtimeClient,
   toWebSocketUrl,
 } from "../../lib/realtimeClient";
@@ -21,9 +23,14 @@ interface PresenceState {
   // "connected", or a presence.updated event with no prior snapshot, must
   // never set this (see useProjectPresence's `ready`).
   readyProjects: Record<string, boolean>;
+  chatEvents: ChatRealtimeEvent[];
 }
 
-const initialState: PresenceState = { connectionStatus: "closed", projects: {}, readyProjects: {} };
+export type ChatRealtimeEvent =
+  | { type: "created"; data: ProjectMessageEvent }
+  | { type: "deleted"; data: ProjectMessageDeletedEvent };
+
+const initialState: PresenceState = { connectionStatus: "closed", projects: {}, readyProjects: {}, chatEvents: [] };
 
 const PresenceStateContext = createContext<PresenceState>(initialState);
 
@@ -72,7 +79,7 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
               // that next connection's own "connected" must not make this
               // stale (or, for a brand-new project, absent) data look
               // current again.
-              { connectionStatus, projects: {}, readyProjects: {} },
+              { connectionStatus, projects: {}, readyProjects: {}, chatEvents: [] },
         );
       },
       onSnapshot: (data: PresenceSnapshotEvent) => {
@@ -94,6 +101,18 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
           },
         }));
       },
+      onProjectMessageCreated: (data) => {
+        setState((prev) => ({
+          ...prev,
+          chatEvents: [...prev.chatEvents.slice(-99), { type: "created", data }],
+        }));
+      },
+      onProjectMessageDeleted: (data) => {
+        setState((prev) => ({
+          ...prev,
+          chatEvents: [...prev.chatEvents.slice(-99), { type: "deleted", data }],
+        }));
+      },
       onAuthError: () => {
         onSessionExpired?.();
       },
@@ -105,6 +124,16 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
   }, [serverUrl, token]);
 
   return <PresenceStateContext.Provider value={state}>{children}</PresenceStateContext.Provider>;
+}
+
+/** Returns the current connection generation's Project Chat events. HTTP
+ * history remains authoritative and repairs any events missed offline. */
+export function useProjectChatEvents(projectId: string): ChatRealtimeEvent[] {
+  const state = useContext(PresenceStateContext);
+  return useMemo(
+    () => state.chatEvents.filter((event) => event.data.project_id === projectId),
+    [projectId, state.chatEvents],
+  );
 }
 
 export interface ProjectPresence {

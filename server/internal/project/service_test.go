@@ -80,6 +80,36 @@ func (f *fakeRepo) ListMemberUserIDs(_ context.Context, projectID string) ([]str
 	return ids, nil
 }
 
+func (f *fakeRepo) RemoveMember(_ context.Context, projectID, actorUserID, targetUserID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	var actorRole, targetRole project.Role
+	actorFound, targetFound := false, false
+	for _, member := range f.members[projectID] {
+		if member.UserID == actorUserID {
+			actorRole, actorFound = member.Role, true
+		}
+		if member.UserID == targetUserID {
+			targetRole, targetFound = member.Role, true
+		}
+	}
+	if !actorFound || !targetFound {
+		return project.ErrNotFound
+	}
+	if !((actorRole == project.RoleOwner && (targetRole == project.RoleAdmin || targetRole == project.RoleMember)) ||
+		(actorRole == project.RoleAdmin && targetRole == project.RoleMember)) {
+		return project.ErrForbidden
+	}
+	for i, member := range f.members[projectID] {
+		if member.UserID == targetUserID {
+			f.members[projectID] = append(f.members[projectID][:i], f.members[projectID][i+1:]...)
+			return nil
+		}
+	}
+	return project.ErrNotFound
+}
+
 func TestProjectIDsForUserAndMemberUserIDs(t *testing.T) {
 	svc := &project.Service{Repo: newFakeRepo()}
 	ctx := context.Background()

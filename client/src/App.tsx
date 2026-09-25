@@ -139,6 +139,7 @@ function App() {
           serverUrl={serverUrl}
           token={auth.session.token}
           projectId={projectId}
+          viewerUserId={auth.user.id}
           onBackToServerHome={() => setScreen({ kind: "server-home", serverUrl, auth })}
           onSessionExpired={() => setScreen({ kind: "login", serverUrl })}
         />

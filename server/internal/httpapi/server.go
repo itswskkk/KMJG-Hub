@@ -7,6 +7,8 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/itswskkk/KMJG-Hub/server/internal/auth"
+	"github.com/itswskkk/KMJG-Hub/server/internal/chat"
+	"github.com/itswskkk/KMJG-Hub/server/internal/invitation"
 	"github.com/itswskkk/KMJG-Hub/server/internal/presence"
 	"github.com/itswskkk/KMJG-Hub/server/internal/project"
 	"github.com/itswskkk/KMJG-Hub/server/internal/realtime"
@@ -17,10 +19,12 @@ import (
 // rather than containing business rules themselves, per
 // docs/ARCHITECTURE.md "Server Internal Architecture".
 type Handlers struct {
-	Auth     *auth.Service
-	Projects *project.Service
-	Realtime *realtime.Hub
-	Presence *presence.Service
+	Auth        *auth.Service
+	Projects    *project.Service
+	Invitations *invitation.Service
+	Chat        *chat.Service
+	Realtime    *realtime.Hub
+	Presence    *presence.Service
 
 	// AuthTimeout overrides how long a newly upgraded WebSocket connection
 	// has to send its auth message (see defaultAuthTimeout). Zero means use
@@ -50,6 +54,20 @@ func NewRouter(h *Handlers, allowedOrigins []string) http.Handler {
 	mux.Handle("POST /api/v1/projects", authed(http.HandlerFunc(h.handleCreateProject)))
 	mux.Handle("GET /api/v1/projects", authed(http.HandlerFunc(h.handleListProjects)))
 	mux.Handle("GET /api/v1/projects/{id}", authed(http.HandlerFunc(h.handleGetProject)))
+	mux.Handle("DELETE /api/v1/projects/{id}/members/{userID}", authed(http.HandlerFunc(h.handleRemoveProjectMember)))
+	mux.Handle("POST /api/v1/projects/{id}/invitations", authed(http.HandlerFunc(h.handleCreateDirectInvitation)))
+	mux.Handle("GET /api/v1/projects/{id}/invitations", authed(http.HandlerFunc(h.handleListProjectInvitations)))
+	mux.Handle("DELETE /api/v1/projects/{id}/invitations/{invitationID}", authed(http.HandlerFunc(h.handleCancelInvitation)))
+	mux.Handle("GET /api/v1/invitations", authed(http.HandlerFunc(h.handleListReceivedInvitations)))
+	mux.Handle("POST /api/v1/invitations/{id}/accept", authed(http.HandlerFunc(h.handleAcceptInvitation)))
+	mux.Handle("POST /api/v1/invitations/{id}/decline", authed(http.HandlerFunc(h.handleDeclineInvitation)))
+	mux.Handle("POST /api/v1/projects/{id}/invite-credentials", authed(http.HandlerFunc(h.handleCreateInviteCredential)))
+	mux.Handle("GET /api/v1/projects/{id}/invite-credentials", authed(http.HandlerFunc(h.handleListInviteCredentials)))
+	mux.Handle("DELETE /api/v1/projects/{id}/invite-credentials/{credentialID}", authed(http.HandlerFunc(h.handleRevokeInviteCredential)))
+	mux.Handle("POST /api/v1/invitations/join", authed(http.HandlerFunc(h.handleJoinProjectWithInvite)))
+	mux.Handle("GET /api/v1/projects/{id}/chat/messages", authed(http.HandlerFunc(h.handleListProjectMessages)))
+	mux.Handle("POST /api/v1/projects/{id}/chat/messages", authed(http.HandlerFunc(h.handleSendProjectMessage)))
+	mux.Handle("DELETE /api/v1/projects/{id}/chat/messages/{messageID}", authed(http.HandlerFunc(h.handleDeleteProjectMessage)))
 
 	// Not wrapped in requireAuth: a browser's native WebSocket API cannot
 	// set an Authorization header on the upgrade request, so this

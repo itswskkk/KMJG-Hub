@@ -153,3 +153,32 @@ func (r *ProjectRepository) ListMemberUserIDs(ctx context.Context, projectID str
 	}
 	return ids, rows.Err()
 }
+
+// RemoveMember enforces the Project role rules in the same SQL statement as
+// the delete. This prevents an authorization decision made by Service from
+// becoming stale if membership or roles change between its read and delete.
+func (r *ProjectRepository) RemoveMember(ctx context.Context, projectID, actorUserID, targetUserID string) error {
+	tag, err := r.pool.Exec(ctx, `
+		DELETE FROM project_members AS target
+		USING project_members AS actor
+		WHERE target.project_id = $1
+		  AND target.user_id = $2
+		  AND actor.project_id = target.project_id
+		  AND actor.user_id = $3
+		  AND (
+			(actor.role = 'owner' AND target.role IN ('admin', 'member'))
+			OR (actor.role = 'admin' AND target.role = 'member')
+		  )
+	`, projectID, targetUserID, actorUserID)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == invalidTextRepresentation {
+			return project.ErrNotFound
+		}
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return project.ErrForbidden
+	}
+	return nil
+}

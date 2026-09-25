@@ -150,6 +150,37 @@ export interface ProjectDetail {
   members: ProjectMember[];
 }
 
+export interface ProjectChatMessage {
+  id: string;
+  project_id: string;
+  author_id: string;
+  author_username: string;
+  body: string;
+  created_at: string;
+}
+
+export interface DirectInvitation {
+  id: string;
+  project_id: string;
+  project_name: string;
+  inviter_username: string;
+  recipient_username: string;
+  created_at: string;
+  expires_at: string | null;
+}
+
+export interface InviteCredential {
+  id: string;
+  project_id: string;
+  project_name: string;
+  creator_username: string;
+  code?: string;
+  created_at: string;
+  expires_at: string | null;
+  max_uses: number | null;
+  uses: number;
+}
+
 function authHeaders(token: string): HeadersInit {
   return { Authorization: `Bearer ${token}` };
 }
@@ -177,4 +208,89 @@ export function getProject(serverUrl: string, token: string, projectId: string):
   return request<ProjectDetail>(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}`, {
     headers: authHeaders(token),
   });
+}
+
+export async function listProjectMessages(serverUrl: string, token: string, projectId: string): Promise<ProjectChatMessage[]> {
+  const body = await request<{ messages: ProjectChatMessage[] | null }>(
+    serverUrl,
+    `/api/v1/projects/${encodeURIComponent(projectId)}/chat/messages`,
+    { headers: authHeaders(token) },
+  );
+  return body.messages ?? [];
+}
+
+export function sendProjectMessage(serverUrl: string, token: string, projectId: string, body: string): Promise<ProjectChatMessage> {
+  return request<ProjectChatMessage>(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/chat/messages`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ body }),
+  });
+}
+
+export function deleteProjectMessage(serverUrl: string, token: string, projectId: string, messageId: string): Promise<void> {
+  return request<void>(
+    serverUrl,
+    `/api/v1/projects/${encodeURIComponent(projectId)}/chat/messages/${encodeURIComponent(messageId)}`,
+    { method: "DELETE", headers: authHeaders(token) },
+  );
+}
+
+/** Removes a different member when the authenticated Project role permits it. */
+export function removeProjectMember(
+  serverUrl: string,
+  token: string,
+  projectId: string,
+  userId: string,
+): Promise<void> {
+  return request<void>(
+    serverUrl,
+    `/api/v1/projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(userId)}`,
+    {
+      method: "DELETE",
+      headers: authHeaders(token),
+    },
+  );
+}
+
+export function createDirectInvitation(serverUrl: string, token: string, projectId: string, recipient: string, expiresIn: string): Promise<DirectInvitation> {
+  return request(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/invitations`, { method: "POST", headers: authHeaders(token), body: JSON.stringify({ recipient, expires_in: expiresIn }) });
+}
+
+export async function listReceivedInvitations(serverUrl: string, token: string): Promise<DirectInvitation[]> {
+  const body = await request<{ invitations: DirectInvitation[] | null }>(serverUrl, "/api/v1/invitations", { headers: authHeaders(token) });
+  return body.invitations ?? [];
+}
+
+export async function listProjectInvitations(serverUrl: string, token: string, projectId: string): Promise<DirectInvitation[]> {
+  const body = await request<{ invitations: DirectInvitation[] | null }>(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/invitations`, { headers: authHeaders(token) });
+  return body.invitations ?? [];
+}
+
+export function acceptInvitation(serverUrl: string, token: string, id: string): Promise<{ project_id: string }> {
+  return request(serverUrl, `/api/v1/invitations/${encodeURIComponent(id)}/accept`, { method: "POST", headers: authHeaders(token) });
+}
+
+export function declineInvitation(serverUrl: string, token: string, id: string): Promise<void> {
+  return request(serverUrl, `/api/v1/invitations/${encodeURIComponent(id)}/decline`, { method: "POST", headers: authHeaders(token) });
+}
+
+export function cancelInvitation(serverUrl: string, token: string, projectId: string, id: string): Promise<void> {
+  return request(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/invitations/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders(token) });
+}
+
+export function createInviteCredential(serverUrl: string, token: string, projectId: string, expiresIn: string, maxUses: number | null): Promise<InviteCredential> {
+  return request(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/invite-credentials`, { method: "POST", headers: authHeaders(token), body: JSON.stringify({ expires_in: expiresIn, max_uses: maxUses }) });
+}
+
+export async function listInviteCredentials(serverUrl: string, token: string, projectId: string): Promise<InviteCredential[]> {
+  const body = await request<{ credentials: InviteCredential[] | null }>(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/invite-credentials`, { headers: authHeaders(token) });
+  return body.credentials ?? [];
+}
+
+export function revokeInviteCredential(serverUrl: string, token: string, projectId: string, id: string): Promise<void> {
+  return request(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/invite-credentials/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders(token) });
+}
+
+export function joinProjectWithInvite(serverUrl: string, token: string, invite: string): Promise<{ project_id: string }> {
+  return request(serverUrl, "/api/v1/invitations/join", { method: "POST", headers: authHeaders(token), body: JSON.stringify({ invite }) });
 }

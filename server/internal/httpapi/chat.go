@@ -1,0 +1,79 @@
+package httpapi
+
+import (
+	"errors"
+	"net/http"
+	"time"
+
+	"github.com/itswskkk/KMJG-Hub/server/internal/chat"
+)
+
+type projectMessageDTO struct {
+	ID             string    `json:"id"`
+	ProjectID      string    `json:"project_id"`
+	AuthorID       string    `json:"author_id"`
+	AuthorUsername string    `json:"author_username"`
+	Body           string    `json:"body"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+func toProjectMessageDTO(message chat.Message) projectMessageDTO {
+	return projectMessageDTO{
+		ID: message.ID, ProjectID: message.ProjectID, AuthorID: message.AuthorID,
+		AuthorUsername: message.AuthorUsername, Body: message.Body, CreatedAt: message.CreatedAt,
+	}
+}
+
+func (h *Handlers) handleListProjectMessages(w http.ResponseWriter, r *http.Request) {
+	messages, err := h.Chat.ListRecent(r.Context(), currentAuth(r).User.ID, r.PathValue("id"))
+	if err != nil {
+		writeChatError(w, err)
+		return
+	}
+	dtos := make([]projectMessageDTO, len(messages))
+	for i, message := range messages {
+		dtos[i] = toProjectMessageDTO(message)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"messages": dtos})
+}
+
+type sendProjectMessageRequest struct {
+	Body string `json:"body"`
+}
+
+func (h *Handlers) handleSendProjectMessage(w http.ResponseWriter, r *http.Request) {
+	var req sendProjectMessageRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", "Request body must be valid JSON matching the expected fields")
+		return
+	}
+	message, err := h.Chat.Send(r.Context(), currentAuth(r).User.ID, r.PathValue("id"), req.Body)
+	if err != nil {
+		writeChatError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, toProjectMessageDTO(*message))
+}
+
+func (h *Handlers) handleDeleteProjectMessage(w http.ResponseWriter, r *http.Request) {
+	err := h.Chat.Delete(r.Context(), currentAuth(r).User.ID, r.PathValue("id"), r.PathValue("messageID"))
+	if err != nil {
+		writeChatError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func writeChatError(w http.ResponseWriter, err error) {
+	var validationErr *chat.ValidationError
+	switch {
+	case errors.As(err, &validationErr):
+		writeFieldError(w, http.StatusBadRequest, "validation_error", validationErr.Message, validationErr.Field)
+	case errors.Is(err, chat.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "Project or message not found")
+	case errors.Is(err, chat.ErrForbidden):
+		writeError(w, http.StatusForbidden, "forbidden", "You do not have permission to delete this message")
+	default:
+		writeError(w, http.StatusInternalServerError, "internal_error", "Something went wrong, please try again")
+	}
+}
