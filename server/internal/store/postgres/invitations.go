@@ -41,7 +41,7 @@ func (r *InvitationRepository) CreateDirect(ctx context.Context, projectID, invi
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var role string
-	if err = tx.QueryRow(ctx, `SELECT role FROM project_members WHERE project_id=$1 AND user_id=$2`, projectID, inviterID).Scan(&role); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT pm.role FROM project_members pm JOIN projects p ON p.id=pm.project_id WHERE pm.project_id=$1 AND pm.user_id=$2 AND p.deleted_at IS NULL`, projectID, inviterID).Scan(&role); err != nil {
 		if invitationNotFound(err) {
 			return nil, invitation.ErrNotFound
 		}
@@ -106,7 +106,7 @@ func (r *InvitationRepository) ListReceived(ctx context.Context, recipientID str
 
 func (r *InvitationRepository) ListForProject(ctx context.Context, projectID, actorID string) ([]invitation.Direct, error) {
 	var role string
-	err := r.pool.QueryRow(ctx, `SELECT role FROM project_members WHERE project_id=$1 AND user_id=$2`, projectID, actorID).Scan(&role)
+	err := r.pool.QueryRow(ctx, `SELECT pm.role FROM project_members pm JOIN projects p ON p.id=pm.project_id WHERE pm.project_id=$1 AND pm.user_id=$2 AND p.deleted_at IS NULL`, projectID, actorID).Scan(&role)
 	if err != nil {
 		if invitationNotFound(err) {
 			return nil, invitation.ErrNotFound
@@ -122,7 +122,7 @@ func (r *InvitationRepository) ListForProject(ctx context.Context, projectID, ac
 func (r *InvitationRepository) list(ctx context.Context, where string, arg string) ([]invitation.Direct, error) {
 	rows, err := r.pool.Query(ctx, `SELECT i.id,i.project_id,p.name,i.inviter_user_id,iu.username,i.recipient_user_id,ru.username,i.created_at,i.expires_at
 		FROM project_direct_invitations i JOIN projects p ON p.id=i.project_id JOIN users iu ON iu.id=i.inviter_user_id JOIN users ru ON ru.id=i.recipient_user_id `+where+`
-		AND i.accepted_at IS NULL AND i.declined_at IS NULL AND i.cancelled_at IS NULL AND (i.expires_at IS NULL OR i.expires_at>now()) ORDER BY i.created_at DESC`, arg)
+		AND p.deleted_at IS NULL AND i.accepted_at IS NULL AND i.declined_at IS NULL AND i.cancelled_at IS NULL AND (i.expires_at IS NULL OR i.expires_at>now()) ORDER BY i.created_at DESC`, arg)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +145,7 @@ func (r *InvitationRepository) Accept(ctx context.Context, invitationID, recipie
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var projectID string
-	err = tx.QueryRow(ctx, `SELECT project_id FROM project_direct_invitations WHERE id=$1 AND recipient_user_id=$2 AND accepted_at IS NULL AND declined_at IS NULL AND cancelled_at IS NULL AND (expires_at IS NULL OR expires_at>$3) FOR UPDATE`, invitationID, recipientID, now).Scan(&projectID)
+	err = tx.QueryRow(ctx, `SELECT i.project_id FROM project_direct_invitations i JOIN projects p ON p.id=i.project_id WHERE i.id=$1 AND i.recipient_user_id=$2 AND i.accepted_at IS NULL AND i.declined_at IS NULL AND i.cancelled_at IS NULL AND (i.expires_at IS NULL OR i.expires_at>$3) AND p.deleted_at IS NULL FOR UPDATE OF i FOR SHARE OF p`, invitationID, recipientID, now).Scan(&projectID)
 	if invitationNotFound(err) {
 		return "", invitation.ErrNotFound
 	}
@@ -172,7 +172,7 @@ func (r *InvitationRepository) Accept(ctx context.Context, invitationID, recipie
 }
 
 func (r *InvitationRepository) Decline(ctx context.Context, invitationID, recipientID string, now time.Time) error {
-	tag, err := r.pool.Exec(ctx, `UPDATE project_direct_invitations SET declined_at=$3 WHERE id=$1 AND recipient_user_id=$2 AND accepted_at IS NULL AND declined_at IS NULL AND cancelled_at IS NULL AND (expires_at IS NULL OR expires_at>$3)`, invitationID, recipientID, now)
+	tag, err := r.pool.Exec(ctx, `UPDATE project_direct_invitations SET declined_at=$3 WHERE id=$1 AND recipient_user_id=$2 AND accepted_at IS NULL AND declined_at IS NULL AND cancelled_at IS NULL AND (expires_at IS NULL OR expires_at>$3) AND EXISTS(SELECT 1 FROM projects p WHERE p.id=project_direct_invitations.project_id AND p.deleted_at IS NULL)`, invitationID, recipientID, now)
 	if err != nil {
 		if invitationNotFound(err) {
 			return invitation.ErrNotFound
@@ -186,7 +186,7 @@ func (r *InvitationRepository) Decline(ctx context.Context, invitationID, recipi
 }
 
 func (r *InvitationRepository) Cancel(ctx context.Context, projectID, invitationID, inviterID string, now time.Time) error {
-	tag, err := r.pool.Exec(ctx, `UPDATE project_direct_invitations SET cancelled_at=$4 WHERE id=$1 AND project_id=$2 AND inviter_user_id=$3 AND accepted_at IS NULL AND declined_at IS NULL AND cancelled_at IS NULL AND (expires_at IS NULL OR expires_at>$4)`, invitationID, projectID, inviterID, now)
+	tag, err := r.pool.Exec(ctx, `UPDATE project_direct_invitations SET cancelled_at=$4 WHERE id=$1 AND project_id=$2 AND inviter_user_id=$3 AND accepted_at IS NULL AND declined_at IS NULL AND cancelled_at IS NULL AND (expires_at IS NULL OR expires_at>$4) AND EXISTS(SELECT 1 FROM projects p WHERE p.id=project_direct_invitations.project_id AND p.deleted_at IS NULL)`, invitationID, projectID, inviterID, now)
 	if err != nil {
 		if invitationNotFound(err) {
 			return invitation.ErrNotFound
@@ -208,7 +208,7 @@ func scanCredential(row pgx.Row) (*invitation.Credential, error) {
 
 func requireProjectManager(ctx context.Context, tx pgx.Tx, projectID, userID string) error {
 	var role string
-	err := tx.QueryRow(ctx, `SELECT role FROM project_members WHERE project_id=$1 AND user_id=$2`, projectID, userID).Scan(&role)
+	err := tx.QueryRow(ctx, `SELECT pm.role FROM project_members pm JOIN projects p ON p.id=pm.project_id WHERE pm.project_id=$1 AND pm.user_id=$2 AND p.deleted_at IS NULL`, projectID, userID).Scan(&role)
 	if invitationNotFound(err) {
 		return invitation.ErrNotFound
 	}
@@ -310,7 +310,7 @@ func (r *InvitationRepository) ConsumeCredential(ctx context.Context, tokenHash,
 	var expiresAt, revokedAt *time.Time
 	var maxUses *int
 	var uses int
-	err = tx.QueryRow(ctx, `SELECT project_id,expires_at,max_uses,uses,revoked_at FROM project_invite_credentials WHERE token_hash=$1 FOR UPDATE`, tokenHash).Scan(&projectID, &expiresAt, &maxUses, &uses, &revokedAt)
+	err = tx.QueryRow(ctx, `SELECT c.project_id,c.expires_at,c.max_uses,c.uses,c.revoked_at FROM project_invite_credentials c JOIN projects p ON p.id=c.project_id WHERE c.token_hash=$1 AND p.deleted_at IS NULL FOR UPDATE OF c FOR SHARE OF p`, tokenHash).Scan(&projectID, &expiresAt, &maxUses, &uses, &revokedAt)
 	if invitationNotFound(err) {
 		return "", invitation.ErrNotFound
 	}

@@ -27,8 +27,9 @@ func (r *ChatRepository) Create(ctx context.Context, projectID, authorID, body s
 			INSERT INTO project_chat_messages (project_id, author_user_id, body)
 			SELECT $1, $2, $3
 			WHERE EXISTS (
-				SELECT 1 FROM project_members
-				WHERE project_id = $1 AND user_id = $2
+				SELECT 1 FROM project_members pm
+				JOIN projects p ON p.id = pm.project_id
+				WHERE pm.project_id = $1 AND pm.user_id = $2 AND p.deleted_at IS NULL
 			)
 			RETURNING id, project_id, kind, author_user_id, body, created_at
 		)
@@ -52,7 +53,9 @@ func (r *ChatRepository) ListPage(ctx context.Context, projectID, viewerID strin
 	var member bool
 	err := r.pool.QueryRow(ctx, `
 		SELECT EXISTS (
-			SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2
+			SELECT 1 FROM project_members pm
+			JOIN projects p ON p.id = pm.project_id
+			WHERE pm.project_id = $1 AND pm.user_id = $2 AND p.deleted_at IS NULL
 		)
 	`, projectID, viewerID).Scan(&member)
 	if err != nil {
@@ -84,8 +87,9 @@ func (r *ChatRepository) ListPage(ctx context.Context, projectID, viewerID strin
 			  AND m.deleted_at IS NULL
 			  AND ($4::timestamptz IS NULL OR (m.created_at,m.id) < ($4,$5::uuid))
 			  AND EXISTS (
-				SELECT 1 FROM project_members
-				WHERE project_id = m.project_id AND user_id = $2
+				SELECT 1 FROM project_members pm
+				JOIN projects p ON p.id = pm.project_id
+				WHERE pm.project_id = m.project_id AND pm.user_id = $2 AND p.deleted_at IS NULL
 			  )
 			ORDER BY m.created_at DESC, m.id DESC
 			LIMIT $3
@@ -161,7 +165,7 @@ func (r *ChatRepository) CreateWithAttachment(ctx context.Context, projectID, au
 	var message chat.Message
 	err = tx.QueryRow(ctx, `WITH inserted AS (
 		INSERT INTO project_chat_messages(project_id,author_user_id,body)
-		SELECT $1,$2,$3 WHERE EXISTS(SELECT 1 FROM project_members WHERE project_id=$1 AND user_id=$2)
+		SELECT $1,$2,$3 WHERE EXISTS(SELECT 1 FROM project_members pm JOIN projects p ON p.id=pm.project_id WHERE pm.project_id=$1 AND pm.user_id=$2 AND p.deleted_at IS NULL)
 		RETURNING id,project_id,kind,author_user_id,body,created_at)
 		SELECT i.id,i.project_id,i.kind,i.author_user_id,u.username,i.body,i.created_at FROM inserted i JOIN users u ON u.id=i.author_user_id`, projectID, authorID, body).Scan(&message.ID, &message.ProjectID, &message.Kind, &message.AuthorID, &message.AuthorUsername, &message.Body, &message.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) || isInvalidUUID(err) {
@@ -205,7 +209,7 @@ func (r *ChatRepository) CreateSystem(ctx context.Context, projectID, kind, body
 // first, to a Project member.
 func (r *ChatRepository) ListFiles(ctx context.Context, projectID, viewerID string) ([]chat.ProjectFile, error) {
 	var member bool
-	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM project_members WHERE project_id=$1 AND user_id=$2)`, projectID, viewerID).Scan(&member)
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM project_members pm JOIN projects p ON p.id=pm.project_id WHERE pm.project_id=$1 AND pm.user_id=$2 AND p.deleted_at IS NULL)`, projectID, viewerID).Scan(&member)
 	if isInvalidUUID(err) {
 		return nil, chat.ErrNotFound
 	}
@@ -242,7 +246,7 @@ func (r *ChatRepository) ListFiles(ctx context.Context, projectID, viewerID stri
 
 func (r *ChatRepository) GetAttachment(ctx context.Context, projectID, attachmentID, viewerID string) (*chat.Attachment, error) {
 	var a chat.Attachment
-	err := r.pool.QueryRow(ctx, `SELECT a.id,a.message_id,a.project_id,a.storage_id,a.filename,a.content_type,a.size_bytes FROM project_chat_attachments a JOIN project_chat_messages m ON m.id=a.message_id WHERE a.project_id=$1 AND a.id=$2 AND m.deleted_at IS NULL AND EXISTS(SELECT 1 FROM project_members WHERE project_id=a.project_id AND user_id=$3)`, projectID, attachmentID, viewerID).Scan(&a.ID, &a.MessageID, &a.ProjectID, &a.StorageID, &a.Filename, &a.ContentType, &a.SizeBytes)
+	err := r.pool.QueryRow(ctx, `SELECT a.id,a.message_id,a.project_id,a.storage_id,a.filename,a.content_type,a.size_bytes FROM project_chat_attachments a JOIN project_chat_messages m ON m.id=a.message_id WHERE a.project_id=$1 AND a.id=$2 AND m.deleted_at IS NULL AND EXISTS(SELECT 1 FROM project_members pm JOIN projects p ON p.id=pm.project_id WHERE pm.project_id=a.project_id AND pm.user_id=$3 AND p.deleted_at IS NULL)`, projectID, attachmentID, viewerID).Scan(&a.ID, &a.MessageID, &a.ProjectID, &a.StorageID, &a.Filename, &a.ContentType, &a.SizeBytes)
 	if errors.Is(err, pgx.ErrNoRows) || isInvalidUUID(err) {
 		return nil, chat.ErrNotFound
 	}
@@ -275,7 +279,9 @@ func (r *ChatRepository) SoftDelete(ctx context.Context, projectID, messageID, a
 	)
 	err := r.pool.QueryRow(ctx, `
 		WITH actor AS MATERIALIZED (
-			SELECT role FROM project_members WHERE project_id = $1 AND user_id = $3
+			SELECT pm.role FROM project_members pm
+			JOIN projects p ON p.id = pm.project_id
+			WHERE pm.project_id = $1 AND pm.user_id = $3 AND p.deleted_at IS NULL
 		), target AS MATERIALIZED (
 			SELECT m.id, m.project_id, m.kind, m.author_user_id, u.username, m.body, m.created_at
 			FROM project_chat_messages m

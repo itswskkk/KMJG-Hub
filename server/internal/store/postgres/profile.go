@@ -244,7 +244,7 @@ func (r *ProfileRepository) AreFollowers(ctx any, aUserID, bUserID string) (bool
 }
 
 // ShareProject returns true if userID1 and userID2 are both current
-// members of at least one Project. This is enforced entirely in SQL
+// members of at least one non-deleted Project. This is enforced entirely in SQL
 // against project_members, the authoritative membership table, rather than
 // on two separately-read membership lists that could race.
 func (r *ProfileRepository) ShareProject(ctx any, userID1, userID2 string) (bool, error) {
@@ -255,7 +255,8 @@ func (r *ProfileRepository) ShareProject(ctx any, userID1, userID2 string) (bool
 		SELECT EXISTS (
 			SELECT 1 FROM project_members pm1
 			JOIN project_members pm2 ON pm2.project_id = pm1.project_id
-			WHERE pm1.user_id = $1 AND pm2.user_id = $2
+			JOIN projects p ON p.id = pm1.project_id
+			WHERE pm1.user_id = $1 AND pm2.user_id = $2 AND p.deleted_at IS NULL
 		)
 	`, userID1, userID2).Scan(&shares)
 	if err != nil {

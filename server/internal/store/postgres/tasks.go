@@ -23,7 +23,7 @@ func scanTask(row pgx.Row) (*task.Task, error) {
 const taskFields = `t.id, t.project_id, t.title, t.description, t.status, t.creator_user_id, creator.username, t.assignee_user_id, assignee.username, t.due_date, t.created_at, t.updated_at`
 
 func (r *TaskRepository) List(ctx context.Context, projectID, viewerID string) ([]task.Task, error) {
-	rows, err := r.pool.Query(ctx, `SELECT `+taskFields+` FROM project_tasks t JOIN users creator ON creator.id=t.creator_user_id LEFT JOIN users assignee ON assignee.id=t.assignee_user_id WHERE t.project_id=$1 AND EXISTS (SELECT 1 FROM project_members WHERE project_id=$1 AND user_id=$2) ORDER BY CASE t.status WHEN 'todo' THEN 1 WHEN 'in_progress' THEN 2 ELSE 3 END, t.created_at, t.id`, projectID, viewerID)
+	rows, err := r.pool.Query(ctx, `SELECT `+taskFields+` FROM project_tasks t JOIN users creator ON creator.id=t.creator_user_id LEFT JOIN users assignee ON assignee.id=t.assignee_user_id WHERE t.project_id=$1 AND EXISTS(SELECT 1 FROM project_members pm JOIN projects p ON p.id=pm.project_id WHERE pm.project_id=$1 AND pm.user_id=$2 AND p.deleted_at IS NULL) ORDER BY CASE t.status WHEN 'todo' THEN 1 WHEN 'in_progress' THEN 2 ELSE 3 END, t.created_at, t.id`, projectID, viewerID)
 	if err != nil {
 		if isInvalidUUID(err) {
 			return nil, task.ErrNotFound
@@ -44,7 +44,7 @@ func (r *TaskRepository) List(ctx context.Context, projectID, viewerID string) (
 	}
 	// An empty result cannot distinguish an empty board from no access.
 	var member bool
-	err = r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM project_members WHERE project_id=$1 AND user_id=$2)`, projectID, viewerID).Scan(&member)
+	err = r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM project_members pm JOIN projects p ON p.id=pm.project_id WHERE pm.project_id=$1 AND pm.user_id=$2 AND p.deleted_at IS NULL)`, projectID, viewerID).Scan(&member)
 	if err != nil {
 		return nil, err
 	}
@@ -54,28 +54,28 @@ func (r *TaskRepository) List(ctx context.Context, projectID, viewerID string) (
 	return items, nil
 }
 func (r *TaskRepository) Get(ctx context.Context, projectID, taskID, viewerID string) (*task.Task, error) {
-	t, err := scanTask(r.pool.QueryRow(ctx, `SELECT `+taskFields+` FROM project_tasks t JOIN users creator ON creator.id=t.creator_user_id LEFT JOIN users assignee ON assignee.id=t.assignee_user_id WHERE t.project_id=$1 AND t.id=$2 AND EXISTS(SELECT 1 FROM project_members WHERE project_id=$1 AND user_id=$3)`, projectID, taskID, viewerID))
+	t, err := scanTask(r.pool.QueryRow(ctx, `SELECT `+taskFields+` FROM project_tasks t JOIN users creator ON creator.id=t.creator_user_id LEFT JOIN users assignee ON assignee.id=t.assignee_user_id WHERE t.project_id=$1 AND t.id=$2 AND EXISTS(SELECT 1 FROM project_members pm JOIN projects p ON p.id=pm.project_id WHERE pm.project_id=$1 AND pm.user_id=$3 AND p.deleted_at IS NULL)`, projectID, taskID, viewerID))
 	if errors.Is(err, pgx.ErrNoRows) || isInvalidUUID(err) {
 		return nil, task.ErrNotFound
 	}
 	return t, err
 }
 func (r *TaskRepository) Create(ctx context.Context, projectID, creatorID, title, description string, dueDate *time.Time) (*task.Task, error) {
-	t, err := scanTask(r.pool.QueryRow(ctx, `WITH inserted AS (INSERT INTO project_tasks(project_id,creator_user_id,title,description,due_date) SELECT $1,$2,$3,$4,$5 WHERE EXISTS(SELECT 1 FROM project_members WHERE project_id=$1 AND user_id=$2) RETURNING *) SELECT `+taskFields+` FROM inserted t JOIN users creator ON creator.id=t.creator_user_id LEFT JOIN users assignee ON assignee.id=t.assignee_user_id`, projectID, creatorID, title, description, dueDate))
+	t, err := scanTask(r.pool.QueryRow(ctx, `WITH inserted AS (INSERT INTO project_tasks(project_id,creator_user_id,title,description,due_date) SELECT $1,$2,$3,$4,$5 WHERE EXISTS(SELECT 1 FROM project_members pm JOIN projects p ON p.id=pm.project_id WHERE pm.project_id=$1 AND pm.user_id=$2 AND p.deleted_at IS NULL) RETURNING *) SELECT `+taskFields+` FROM inserted t JOIN users creator ON creator.id=t.creator_user_id LEFT JOIN users assignee ON assignee.id=t.assignee_user_id`, projectID, creatorID, title, description, dueDate))
 	if errors.Is(err, pgx.ErrNoRows) || isInvalidUUID(err) {
 		return nil, task.ErrNotFound
 	}
 	return t, err
 }
 func (r *TaskRepository) SetStatus(ctx context.Context, projectID, taskID, actorID string, status task.Status) (*task.Task, error) {
-	t, err := scanTask(r.pool.QueryRow(ctx, `WITH updated AS (UPDATE project_tasks SET status=$4,updated_at=now() WHERE id=$2 AND project_id=$1 AND EXISTS(SELECT 1 FROM project_members WHERE project_id=$1 AND user_id=$3) RETURNING *) SELECT `+taskFields+` FROM updated t JOIN users creator ON creator.id=t.creator_user_id LEFT JOIN users assignee ON assignee.id=t.assignee_user_id`, projectID, taskID, actorID, status))
+	t, err := scanTask(r.pool.QueryRow(ctx, `WITH updated AS (UPDATE project_tasks SET status=$4,updated_at=now() WHERE id=$2 AND project_id=$1 AND EXISTS(SELECT 1 FROM project_members pm JOIN projects p ON p.id=pm.project_id WHERE pm.project_id=$1 AND pm.user_id=$3 AND p.deleted_at IS NULL) RETURNING *) SELECT `+taskFields+` FROM updated t JOIN users creator ON creator.id=t.creator_user_id LEFT JOIN users assignee ON assignee.id=t.assignee_user_id`, projectID, taskID, actorID, status))
 	if errors.Is(err, pgx.ErrNoRows) || isInvalidUUID(err) {
 		return nil, task.ErrNotFound
 	}
 	return t, err
 }
 func (r *TaskRepository) AssignSelf(ctx context.Context, projectID, taskID, userID string) (*task.Task, error) {
-	t, err := scanTask(r.pool.QueryRow(ctx, `WITH updated AS (UPDATE project_tasks SET assignee_user_id=$3,updated_at=now() WHERE id=$2 AND project_id=$1 AND EXISTS(SELECT 1 FROM project_members WHERE project_id=$1 AND user_id=$3) RETURNING *) SELECT `+taskFields+` FROM updated t JOIN users creator ON creator.id=t.creator_user_id LEFT JOIN users assignee ON assignee.id=t.assignee_user_id`, projectID, taskID, userID))
+	t, err := scanTask(r.pool.QueryRow(ctx, `WITH updated AS (UPDATE project_tasks SET assignee_user_id=$3,updated_at=now() WHERE id=$2 AND project_id=$1 AND EXISTS(SELECT 1 FROM project_members pm JOIN projects p ON p.id=pm.project_id WHERE pm.project_id=$1 AND pm.user_id=$3 AND p.deleted_at IS NULL) RETURNING *) SELECT `+taskFields+` FROM updated t JOIN users creator ON creator.id=t.creator_user_id LEFT JOIN users assignee ON assignee.id=t.assignee_user_id`, projectID, taskID, userID))
 	if errors.Is(err, pgx.ErrNoRows) || isInvalidUUID(err) {
 		return nil, task.ErrNotFound
 	}
@@ -83,7 +83,7 @@ func (r *TaskRepository) AssignSelf(ctx context.Context, projectID, taskID, user
 }
 func (r *TaskRepository) RequestAssignment(ctx context.Context, projectID, taskID, requesterID, recipientID string) (*task.AssignmentRequest, error) {
 	var x task.AssignmentRequest
-	err := r.pool.QueryRow(ctx, `INSERT INTO task_assignment_requests(task_id,project_id,requester_user_id,recipient_user_id) SELECT $2,$1,$3,$4 WHERE EXISTS(SELECT 1 FROM project_tasks WHERE id=$2 AND project_id=$1) AND EXISTS(SELECT 1 FROM project_members WHERE project_id=$1 AND user_id=$3) AND EXISTS(SELECT 1 FROM project_members WHERE project_id=$1 AND user_id=$4) RETURNING id,task_id,project_id,requester_user_id,recipient_user_id,status,created_at`, projectID, taskID, requesterID, recipientID).Scan(&x.ID, &x.TaskID, &x.ProjectID, &x.RequesterID, &x.RecipientID, &x.Status, &x.CreatedAt)
+	err := r.pool.QueryRow(ctx, `INSERT INTO task_assignment_requests(task_id,project_id,requester_user_id,recipient_user_id) SELECT $2,$1,$3,$4 WHERE EXISTS(SELECT 1 FROM project_tasks WHERE id=$2 AND project_id=$1) AND EXISTS(SELECT 1 FROM project_members pm JOIN projects p ON p.id=pm.project_id WHERE pm.project_id=$1 AND pm.user_id=$3 AND p.deleted_at IS NULL) AND EXISTS(SELECT 1 FROM project_members pm JOIN projects p ON p.id=pm.project_id WHERE pm.project_id=$1 AND pm.user_id=$4 AND p.deleted_at IS NULL) RETURNING id,task_id,project_id,requester_user_id,recipient_user_id,status,created_at`, projectID, taskID, requesterID, recipientID).Scan(&x.ID, &x.TaskID, &x.ProjectID, &x.RequesterID, &x.RecipientID, &x.Status, &x.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) || isInvalidUUID(err) {
 		return nil, task.ErrNotFound
 	}
@@ -100,7 +100,7 @@ func (r *TaskRepository) RespondAssignment(ctx context.Context, requestID, recip
 	}
 	defer tx.Rollback(ctx)
 	var taskID, projectID string
-	err = tx.QueryRow(ctx, `UPDATE task_assignment_requests SET status=$3,responded_at=now() WHERE id=$1 AND recipient_user_id=$2 AND status='pending' RETURNING task_id,project_id`, requestID, recipientID, status).Scan(&taskID, &projectID)
+	err = tx.QueryRow(ctx, `UPDATE task_assignment_requests SET status=$3,responded_at=now() WHERE id=$1 AND recipient_user_id=$2 AND status='pending' AND EXISTS(SELECT 1 FROM projects p WHERE p.id=task_assignment_requests.project_id AND p.deleted_at IS NULL) RETURNING task_id,project_id`, requestID, recipientID, status).Scan(&taskID, &projectID)
 	if errors.Is(err, pgx.ErrNoRows) || isInvalidUUID(err) {
 		return nil, task.ErrNotFound
 	}
@@ -128,7 +128,7 @@ func (r *TaskRepository) SetCurrent(ctx context.Context, projectID, taskID, user
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	t, err := scanTask(tx.QueryRow(ctx, `WITH updated AS (UPDATE project_tasks SET status=CASE WHEN status='todo' THEN 'in_progress' ELSE status END,updated_at=now() WHERE id=$2 AND project_id=$1 AND assignee_user_id=$3 RETURNING *) SELECT `+taskFields+` FROM updated t JOIN users creator ON creator.id=t.creator_user_id LEFT JOIN users assignee ON assignee.id=t.assignee_user_id`, projectID, taskID, userID))
+	t, err := scanTask(tx.QueryRow(ctx, `WITH updated AS (UPDATE project_tasks SET status=CASE WHEN status='todo' THEN 'in_progress' ELSE status END,updated_at=now() WHERE id=$2 AND project_id=$1 AND assignee_user_id=$3 AND EXISTS(SELECT 1 FROM projects p WHERE p.id=project_tasks.project_id AND p.deleted_at IS NULL) RETURNING *) SELECT `+taskFields+` FROM updated t JOIN users creator ON creator.id=t.creator_user_id LEFT JOIN users assignee ON assignee.id=t.assignee_user_id`, projectID, taskID, userID))
 	if errors.Is(err, pgx.ErrNoRows) || isInvalidUUID(err) {
 		return nil, task.ErrNotFound
 	}
@@ -145,7 +145,7 @@ func (r *TaskRepository) SetCurrent(ctx context.Context, projectID, taskID, user
 	return t, nil
 }
 func (r *TaskRepository) ListComments(ctx context.Context, projectID, taskID, viewerID string) ([]task.Comment, error) {
-	rows, err := r.pool.Query(ctx, `SELECT c.id,c.task_id,c.author_user_id,u.username,c.body,c.created_at FROM project_task_comments c JOIN users u ON u.id=c.author_user_id WHERE c.task_id=$2 AND EXISTS(SELECT 1 FROM project_tasks WHERE id=$2 AND project_id=$1) AND EXISTS(SELECT 1 FROM project_members WHERE project_id=$1 AND user_id=$3) ORDER BY c.created_at,c.id`, projectID, taskID, viewerID)
+	rows, err := r.pool.Query(ctx, `SELECT c.id,c.task_id,c.author_user_id,u.username,c.body,c.created_at FROM project_task_comments c JOIN users u ON u.id=c.author_user_id WHERE c.task_id=$2 AND EXISTS(SELECT 1 FROM project_tasks WHERE id=$2 AND project_id=$1) AND EXISTS(SELECT 1 FROM project_members pm JOIN projects p ON p.id=pm.project_id WHERE pm.project_id=$1 AND pm.user_id=$3 AND p.deleted_at IS NULL) ORDER BY c.created_at,c.id`, projectID, taskID, viewerID)
 	if err != nil {
 		if isInvalidUUID(err) {
 			return nil, task.ErrNotFound
@@ -171,7 +171,7 @@ func (r *TaskRepository) ListComments(ctx context.Context, projectID, taskID, vi
 }
 func (r *TaskRepository) AddComment(ctx context.Context, projectID, taskID, authorID, body string) (*task.Comment, error) {
 	var c task.Comment
-	err := r.pool.QueryRow(ctx, `WITH inserted AS (INSERT INTO project_task_comments(task_id,author_user_id,body) SELECT $2,$3,$4 WHERE EXISTS(SELECT 1 FROM project_tasks WHERE id=$2 AND project_id=$1) AND EXISTS(SELECT 1 FROM project_members WHERE project_id=$1 AND user_id=$3) RETURNING *) SELECT c.id,c.task_id,c.author_user_id,u.username,c.body,c.created_at FROM inserted c JOIN users u ON u.id=c.author_user_id`, projectID, taskID, authorID, body).Scan(&c.ID, &c.TaskID, &c.AuthorID, &c.AuthorUsername, &c.Body, &c.CreatedAt)
+	err := r.pool.QueryRow(ctx, `WITH inserted AS (INSERT INTO project_task_comments(task_id,author_user_id,body) SELECT $2,$3,$4 WHERE EXISTS(SELECT 1 FROM project_tasks WHERE id=$2 AND project_id=$1) AND EXISTS(SELECT 1 FROM project_members pm JOIN projects p ON p.id=pm.project_id WHERE pm.project_id=$1 AND pm.user_id=$3 AND p.deleted_at IS NULL) RETURNING *) SELECT c.id,c.task_id,c.author_user_id,u.username,c.body,c.created_at FROM inserted c JOIN users u ON u.id=c.author_user_id`, projectID, taskID, authorID, body).Scan(&c.ID, &c.TaskID, &c.AuthorID, &c.AuthorUsername, &c.Body, &c.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) || isInvalidUUID(err) {
 		return nil, task.ErrNotFound
 	}
@@ -179,7 +179,7 @@ func (r *TaskRepository) AddComment(ctx context.Context, projectID, taskID, auth
 }
 
 func (r *TaskRepository) ListPendingAssignments(ctx context.Context, recipientID string) ([]task.AssignmentRequest, error) {
-	rows, err := r.pool.Query(ctx, `SELECT r.id,r.task_id,r.project_id,r.requester_user_id,r.recipient_user_id,t.title,u.username,r.status,r.created_at FROM task_assignment_requests r JOIN project_tasks t ON t.id=r.task_id JOIN users u ON u.id=r.requester_user_id WHERE r.recipient_user_id=$1 AND r.status='pending' ORDER BY r.created_at,r.id`, recipientID)
+	rows, err := r.pool.Query(ctx, `SELECT r.id,r.task_id,r.project_id,r.requester_user_id,r.recipient_user_id,t.title,u.username,r.status,r.created_at FROM task_assignment_requests r JOIN project_tasks t ON t.id=r.task_id JOIN users u ON u.id=r.requester_user_id JOIN projects p ON p.id=r.project_id WHERE r.recipient_user_id=$1 AND r.status='pending' AND p.deleted_at IS NULL ORDER BY r.created_at,r.id`, recipientID)
 	if err != nil {
 		return nil, err
 	}

@@ -84,7 +84,8 @@ func (r *FileTransferRepository) Create(ctx context.Context, senderID, recipient
 			OR EXISTS (
 				SELECT 1 FROM project_members a
 				JOIN project_members b ON b.project_id = a.project_id
-				WHERE a.user_id = $1 AND b.user_id = $2
+				JOIN projects p ON p.id = a.project_id
+				WHERE a.user_id = $1 AND b.user_id = $2 AND p.deleted_at IS NULL
 			)
 		  )
 		  AND NOT EXISTS (
