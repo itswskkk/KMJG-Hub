@@ -10,10 +10,11 @@ interface ServerHomeProps {
   onCreateProject: () => void;
   onOpenProfile: () => void;
   onOpenFriends: () => void;
+  onOpenMessages: () => void;
   onSessionExpired: () => void;
 }
 
-function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject, onOpenProfile, onOpenFriends, onSessionExpired }: ServerHomeProps) {
+function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject, onOpenProfile, onOpenFriends, onOpenMessages, onSessionExpired }: ServerHomeProps) {
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -103,6 +104,9 @@ function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject
           <p className="server-home__subtitle">Signed in as {username}</p>
         </div>
         <div className="server-home__header-actions">
+          <button type="button" onClick={onOpenMessages}>
+            Messages
+          </button>
           <button type="button" onClick={onOpenFriends}>
             Friends
           </button>

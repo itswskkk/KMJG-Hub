@@ -603,3 +603,60 @@ export async function listBlocked(serverUrl: string, token: string): Promise<Blo
   const body = await request<{ blocked: BlockedUser[] | null }>(serverUrl, "/api/v1/blocked", { headers: authHeaders(token) });
   return body.blocked ?? [];
 }
+
+/** One Direct Message between the viewer and another user
+ * (docs/PRD.md § Friends and Direct Messages). */
+export interface DirectMessage {
+  id: string;
+  sender_id: string;
+  sender_username: string;
+  recipient_id: string;
+  recipient_username: string;
+  body: string;
+  created_at: string;
+}
+
+/** One DM thread in the viewer's conversation list, with its latest message. */
+export interface Conversation {
+  other_user_id: string;
+  other_username: string;
+  last_message_body: string;
+  last_message_at: string;
+  last_message_from_me: boolean;
+}
+
+export interface DirectMessagePage {
+  messages: DirectMessage[];
+  next_cursor: string;
+}
+
+export async function listConversations(serverUrl: string, token: string): Promise<Conversation[]> {
+  const body = await request<{ conversations: Conversation[] | null }>(serverUrl, "/api/v1/direct-messages/conversations", { headers: authHeaders(token) });
+  return body.conversations ?? [];
+}
+
+/** A page of the conversation with otherUserId, oldest first. Pass the
+ * previous page's next_cursor to load older history. */
+export async function listDMMessages(serverUrl: string, token: string, otherUserId: string, cursor = ""): Promise<DirectMessagePage> {
+  const body = await request<{ messages: DirectMessage[] | null; next_cursor?: string }>(
+    serverUrl,
+    `/api/v1/direct-messages/${encodeURIComponent(otherUserId)}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+    { headers: authHeaders(token) },
+  );
+  return { messages: body.messages ?? [], next_cursor: body.next_cursor ?? "" };
+}
+
+/** Sends a Direct Message. The Server rejects it (403) unless the two users
+ * are friends or share a Project, and neither has blocked the other. */
+export function sendDM(serverUrl: string, token: string, recipientId: string, body: string): Promise<DirectMessage> {
+  return request<DirectMessage>(serverUrl, `/api/v1/direct-messages/${encodeURIComponent(recipientId)}`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ body }),
+  });
+}
+
+/** Deletes a Direct Message the viewer sent (sender only). */
+export function deleteDM(serverUrl: string, token: string, messageId: string): Promise<void> {
+  return request<void>(serverUrl, `/api/v1/direct-messages/${encodeURIComponent(messageId)}`, { method: "DELETE", headers: authHeaders(token) });
+}

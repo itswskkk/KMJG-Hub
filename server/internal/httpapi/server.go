@@ -8,6 +8,7 @@ import (
 
 	"github.com/itswskkk/KMJG-Hub/server/internal/auth"
 	"github.com/itswskkk/KMJG-Hub/server/internal/chat"
+	"github.com/itswskkk/KMJG-Hub/server/internal/directmessage"
 	"github.com/itswskkk/KMJG-Hub/server/internal/friend"
 	"github.com/itswskkk/KMJG-Hub/server/internal/invitation"
 	"github.com/itswskkk/KMJG-Hub/server/internal/presence"
@@ -23,16 +24,17 @@ import (
 // rather than containing business rules themselves, per
 // docs/ARCHITECTURE.md "Server Internal Architecture".
 type Handlers struct {
-	Auth         *auth.Service
-	Projects     *project.Service
-	Invitations  *invitation.Service
-	Chat         *chat.Service
-	Tasks        *task.Service
-	Profiles     *profile.Service
-	Friends      *friend.Service
-	Realtime     *realtime.Hub
-	Presence     *presence.Service
-	WorkContexts *workcontext.Service
+	Auth           *auth.Service
+	Projects       *project.Service
+	Invitations    *invitation.Service
+	Chat           *chat.Service
+	Tasks          *task.Service
+	Profiles       *profile.Service
+	Friends        *friend.Service
+	DirectMessages *directmessage.Service
+	Realtime       *realtime.Hub
+	Presence       *presence.Service
+	WorkContexts   *workcontext.Service
 
 	// AuthTimeout overrides how long a newly upgraded WebSocket connection
 	// has to send its auth message (see defaultAuthTimeout). Zero means use
@@ -108,6 +110,11 @@ func NewRouter(h *Handlers, allowedOrigins []string) http.Handler {
 	mux.Handle("POST /api/v1/blocked", authed(http.HandlerFunc(h.handleBlock)))
 	mux.Handle("DELETE /api/v1/blocked/{user_id}", authed(http.HandlerFunc(h.handleUnblock)))
 	mux.Handle("GET /api/v1/blocked", authed(http.HandlerFunc(h.handleListBlocked)))
+
+	mux.Handle("GET /api/v1/direct-messages/conversations", authed(http.HandlerFunc(h.handleListConversations)))
+	mux.Handle("GET /api/v1/direct-messages/{user_id}", authed(http.HandlerFunc(h.handleListDMMessages)))
+	mux.Handle("POST /api/v1/direct-messages/{user_id}", authed(http.HandlerFunc(h.handleSendDM)))
+	mux.Handle("DELETE /api/v1/direct-messages/{id}", authed(http.HandlerFunc(h.handleDeleteDM)))
 
 	// Not wrapped in requireAuth: a browser's native WebSocket API cannot
 	// set an Authorization header on the upgrade request, so this

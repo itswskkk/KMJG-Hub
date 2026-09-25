@@ -5,6 +5,7 @@ import Register from "./features/auth/Register";
 import ServerHome from "./features/server-home/ServerHome";
 import Profile from "./features/server-home/Profile";
 import Friends from "./features/server-home/Friends";
+import DirectMessages from "./features/server-home/DirectMessages";
 import CreateProject from "./features/projects/CreateProject";
 import ProjectWorkspace from "./features/projects/ProjectWorkspace";
 import { PresenceProvider } from "./features/presence/PresenceProvider";
@@ -23,6 +24,7 @@ type Screen =
   | { kind: "create-project"; serverUrl: string; auth: AuthResponse }
   | { kind: "profile"; serverUrl: string; auth: AuthResponse }
   | { kind: "friends"; serverUrl: string; auth: AuthResponse }
+  | { kind: "direct-messages"; serverUrl: string; auth: AuthResponse }
   | { kind: "project"; serverUrl: string; auth: AuthResponse; projectId: string };
 
 function App() {
@@ -129,6 +131,7 @@ function App() {
           onCreateProject={() => setScreen({ kind: "create-project", serverUrl, auth })}
           onOpenProfile={() => setScreen({ kind: "profile", serverUrl, auth })}
           onOpenFriends={() => setScreen({ kind: "friends", serverUrl, auth })}
+          onOpenMessages={() => setScreen({ kind: "direct-messages", serverUrl, auth })}
 		  onSessionExpired={() => sessionInvalid(serverUrl)}
         />
       );
@@ -154,6 +157,20 @@ function App() {
         <Friends
           serverUrl={serverUrl}
           token={auth.session.token}
+          onBack={() => setScreen({ kind: "server-home", serverUrl, auth })}
+          onSessionExpired={() => sessionInvalid(serverUrl)}
+        />
+      );
+      break;
+    }
+
+    case "direct-messages": {
+      const { serverUrl, auth } = screen;
+      content = (
+        <DirectMessages
+          serverUrl={serverUrl}
+          token={auth.session.token}
+          viewerUserId={auth.user.id}
           onBack={() => setScreen({ kind: "server-home", serverUrl, auth })}
           onSessionExpired={() => sessionInvalid(serverUrl)}
         />

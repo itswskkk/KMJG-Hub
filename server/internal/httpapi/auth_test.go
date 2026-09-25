@@ -14,6 +14,7 @@ import (
 
 	"github.com/itswskkk/KMJG-Hub/server/internal/auth"
 	"github.com/itswskkk/KMJG-Hub/server/internal/chat"
+	"github.com/itswskkk/KMJG-Hub/server/internal/directmessage"
 	"github.com/itswskkk/KMJG-Hub/server/internal/friend"
 	"github.com/itswskkk/KMJG-Hub/server/internal/friend/friendtest"
 	"github.com/itswskkk/KMJG-Hub/server/internal/httpapi"
@@ -152,9 +153,12 @@ func newTestRouterWithHandlers() (http.Handler, *httpapi.Handlers, *fakeProjectR
 	profileMembership := newFakeProfileMembership(projectRepo)
 	profileSvc := &profile.Service{Repo: profileRepo, Membership: profileMembership}
 
-	friendSvc := &friend.Service{Repo: friendtest.NewMemory(fakeUserDirectory{users}), Publisher: &friend.RealtimePublisher{Hub: hub}}
+	friendRepo := friendtest.NewMemory(fakeUserDirectory{users})
+	friendSvc := &friend.Service{Repo: friendRepo, Publisher: &friend.RealtimePublisher{Hub: hub}}
 
-	handlers := &httpapi.Handlers{Auth: authSvc, Projects: projectSvc, Invitations: invitationSvc, Chat: chatSvc, Profiles: profileSvc, Friends: friendSvc, Realtime: hub, Presence: presenceSvc}
+	dmSvc := &directmessage.Service{Repo: newFakeDMRepo(users, projectRepo, friendRepo), Publisher: &directmessage.RealtimePublisher{Hub: hub}}
+
+	handlers := &httpapi.Handlers{Auth: authSvc, Projects: projectSvc, Invitations: invitationSvc, Chat: chatSvc, Profiles: profileSvc, Friends: friendSvc, DirectMessages: dmSvc, Realtime: hub, Presence: presenceSvc}
 	router := httpapi.NewRouter(handlers, []string{"http://localhost:1420"})
 	return router, handlers, projectRepo
 }

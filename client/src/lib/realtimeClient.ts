@@ -75,6 +75,22 @@ export interface FriendRealtimeEvent {
   data: Record<string, unknown>;
 }
 
+export interface DirectMessageEvent {
+  id: string;
+  sender_id: string;
+  sender_username: string;
+  recipient_id: string;
+  recipient_username: string;
+  body: string;
+  created_at: string;
+}
+
+export interface DirectMessageDeletedEvent {
+  message_id: string;
+  sender_id: string;
+  recipient_id: string;
+}
+
 export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "closed";
 
 export interface RealtimeClientHandlers {
@@ -86,6 +102,8 @@ export interface RealtimeClientHandlers {
   onProjectTaskChanged?: (data: ProjectTaskChangedEvent) => void;
 	onProjectWorkContextUpdated?: (data: ProjectWorkContextEvent) => void;
   onFriendEvent?: (event: FriendRealtimeEvent) => void;
+  onDirectMessageCreated?: (data: DirectMessageEvent) => void;
+  onDirectMessageDeleted?: (data: DirectMessageDeletedEvent) => void;
   /** The Server rejected the session (invalid/expired/revoked) — the same
    * condition the Client already treats as a sign-out over HTTP
    * (apiClient's isSessionExpired). Reconnecting with the same token would
@@ -203,6 +221,12 @@ export class RealtimeClient {
 	  case "project.work-context.updated":
 		this.handlers.onProjectWorkContextUpdated?.(envelope.data as ProjectWorkContextEvent);
 		break;
+      case "direct_message.created":
+        this.handlers.onDirectMessageCreated?.(envelope.data as DirectMessageEvent);
+        break;
+      case "direct_message.deleted":
+        this.handlers.onDirectMessageDeleted?.(envelope.data as DirectMessageDeletedEvent);
+        break;
       case "error":
         // The Server closes the connection right after; stop here instead
         // of letting the upcoming close event schedule a doomed retry with

@@ -18,6 +18,7 @@ import (
 	"github.com/itswskkk/KMJG-Hub/server/internal/auth"
 	"github.com/itswskkk/KMJG-Hub/server/internal/chat"
 	"github.com/itswskkk/KMJG-Hub/server/internal/config"
+	"github.com/itswskkk/KMJG-Hub/server/internal/directmessage"
 	"github.com/itswskkk/KMJG-Hub/server/internal/friend"
 	"github.com/itswskkk/KMJG-Hub/server/internal/httpapi"
 	"github.com/itswskkk/KMJG-Hub/server/internal/invitation"
@@ -42,7 +43,7 @@ const sessionSweepInterval = 60 * time.Second
 
 // ASSUMPTION A-260925-6: an hourly sweep (plus one at startup) is the
 // product-acceptable precision for the 30-day deletion lifecycle.
-const chatRetentionSweepInterval = time.Hour
+const retentionSweepInterval = time.Hour
 
 // App holds the running application's dependencies.
 type App struct {
@@ -125,46 +126,57 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Repo:      postgres.NewFriendRepository(pool),
 		Publisher: &friend.RealtimePublisher{Hub: hub},
 	}
+	directMessageService := &directmessage.Service{
+		Repo:      postgres.NewDirectMessageRepository(pool),
+		Publisher: &directmessage.RealtimePublisher{Hub: hub},
+	}
 	hub.OnUserOnline = presenceService.HandleUserOnline
 	hub.OnUserOffline = presenceService.HandleUserOffline
 
 	handlers := &httpapi.Handlers{
-		Auth:         authService,
-		Projects:     projectService,
-		Invitations:  invitationService,
-		Chat:         chatService,
-		Tasks:        taskService,
-		Profiles:     profileService,
-		Friends:      friendService,
-		Realtime:     hub,
-		Presence:     presenceService,
-		WorkContexts: workContextService,
+		Auth:           authService,
+		Projects:       projectService,
+		Invitations:    invitationService,
+		Chat:           chatService,
+		Tasks:          taskService,
+		Profiles:       profileService,
+		Friends:        friendService,
+		DirectMessages: directMessageService,
+		Realtime:       hub,
+		Presence:       presenceService,
+		WorkContexts:   workContextService,
 	}
 	router := httpapi.NewRouter(handlers, cfg.AllowedOrigins)
 
 	a := &App{Pool: pool, Router: router, Realtime: hub, Storage: fileStore, cancel: cancel}
-	a.wg.Add(2)
+	a.wg.Add(3)
 	go func() {
 		defer a.wg.Done()
 		runSessionSweep(appCtx, hub, authService)
 	}()
 	go func() {
 		defer a.wg.Done()
-		runChatRetentionSweep(appCtx, chatService)
+		runRetentionSweep(appCtx, "Project Chat messages", chatService.PurgeExpiredDeleted)
+	}()
+	go func() {
+		defer a.wg.Done()
+		runRetentionSweep(appCtx, "Direct Messages", directMessageService.PurgeExpiredDeleted)
 	}()
 
 	return a, nil
 }
 
-func runChatRetentionSweep(ctx context.Context, chatService *chat.Service) {
+// runRetentionSweep permanently purges soft-deleted messages past their
+// 30-day retention window, once at startup and then hourly, until ctx ends.
+func runRetentionSweep(ctx context.Context, what string, purge func(context.Context, time.Time) error) {
 	cleanup := func() {
-		if err := chatService.PurgeExpiredDeleted(ctx, time.Now().UTC()); err != nil && ctx.Err() == nil {
-			slog.Error("app: purge expired deleted Project Chat messages", "error", err)
+		if err := purge(ctx, time.Now().UTC()); err != nil && ctx.Err() == nil {
+			slog.Error("app: purge expired deleted "+what, "error", err)
 		}
 	}
 	cleanup()
 
-	ticker := time.NewTicker(chatRetentionSweepInterval)
+	ticker := time.NewTicker(retentionSweepInterval)
 	defer ticker.Stop()
 	for {
 		select {

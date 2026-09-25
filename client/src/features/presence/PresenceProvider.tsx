@@ -1,6 +1,8 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import {
   ConnectionStatus,
+  DirectMessageDeletedEvent,
+  DirectMessageEvent,
   FriendRealtimeEvent,
   PresenceSnapshotEvent,
   PresenceUpdatedEvent,
@@ -30,13 +32,18 @@ interface PresenceState {
   taskEvents: ProjectTaskChangedEvent[];
 	workContextEvents: ProjectWorkContextEvent[];
   friendEvents: FriendRealtimeEvent[];
+  dmEvents: DMRealtimeEvent[];
 }
+
+export type DMRealtimeEvent =
+  | { type: "created"; data: DirectMessageEvent }
+  | { type: "deleted"; data: DirectMessageDeletedEvent };
 
 export type ChatRealtimeEvent =
   | { type: "created"; data: ProjectMessageEvent }
   | { type: "deleted"; data: ProjectMessageDeletedEvent };
 
-const initialState: PresenceState = { connectionStatus: "closed", projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [], friendEvents: [] };
+const initialState: PresenceState = { connectionStatus: "closed", projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [], friendEvents: [], dmEvents: [] };
 
 const PresenceStateContext = createContext<PresenceState>(initialState);
 
@@ -85,7 +92,7 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
               // that next connection's own "connected" must not make this
               // stale (or, for a brand-new project, absent) data look
               // current again.
-              { connectionStatus, projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [], friendEvents: [] },
+              { connectionStatus, projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [], friendEvents: [], dmEvents: [] },
         );
       },
       onSnapshot: (data: PresenceSnapshotEvent) => {
@@ -128,6 +135,12 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
       onFriendEvent: (event) => {
         setState((prev) => ({ ...prev, friendEvents: [...prev.friendEvents.slice(-99), event] }));
       },
+      onDirectMessageCreated: (data) => {
+        setState((prev) => ({ ...prev, dmEvents: [...prev.dmEvents.slice(-99), { type: "created", data }] }));
+      },
+      onDirectMessageDeleted: (data) => {
+        setState((prev) => ({ ...prev, dmEvents: [...prev.dmEvents.slice(-99), { type: "deleted", data }] }));
+      },
       onAuthError: () => {
         onSessionExpired?.();
       },
@@ -139,6 +152,12 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
   }, [serverUrl, token]);
 
   return <PresenceStateContext.Provider value={state}>{children}</PresenceStateContext.Provider>;
+}
+
+/** Returns the current connection generation's Direct Message events. HTTP
+ * history remains authoritative and repairs any events missed offline. */
+export function useDMEvents(): DMRealtimeEvent[] {
+  return useContext(PresenceStateContext).dmEvents;
 }
 
 /** Returns the current connection generation's friend/block events. Each
