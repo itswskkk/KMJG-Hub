@@ -1464,7 +1464,13 @@ revisited this session:**
   supplementary group. The host-side Docker Compose smoke test is now verified
   successfully; this is an agent-sandbox limitation only.
 
-## Next Steps
+## Next Steps (superseded — see "Next Steps" under the top checkpoint)
+
+This was the 2026-09-25 checkpoint's next-steps list, kept here only as a
+historical record. It is narrower than and superseded by the "Next Steps"
+section under **Live Verification, Docs Audit, and Desktop Build
+(2026-09-26)** at the top of this file — read that one, not this one, for
+what to do next.
 
 1. Put the published Server behind trusted HTTPS before using it over a
    network; configure allowed origins for the actual deployment.
