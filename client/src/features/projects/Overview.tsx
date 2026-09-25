@@ -1,10 +1,14 @@
 import { ProjectDetail } from "../../lib/apiClient";
 import { useProjectPresence } from "../presence/PresenceProvider";
+import ProjectRepositorySection from "./ProjectRepositorySection";
 import "./Overview.css";
 
 interface OverviewProps {
   detail: ProjectDetail;
+  serverUrl: string;
+  token: string;
   onViewMembers: () => void;
+  onSessionExpired: () => void;
 }
 
 /**
@@ -14,12 +18,12 @@ interface OverviewProps {
  * member list with roles lives in the dedicated Members section
  * (docs/UX.md "Members Experience") rather than being duplicated here,
  * matching the UX mockup's own "Members Online 3/4" summary rather than a
- * full roster. Tasks, Git activity, and Project activity are separate
+ * full roster. Git activity and Project activity are separate
  * features not built in this checkpoint (see PROGRESS.md) — those sections
  * are shown honestly as not-yet-available rather than backed by fabricated
  * data, the same pattern used for the disabled GitHub login option.
  */
-function Overview({ detail, onViewMembers }: OverviewProps) {
+function Overview({ detail, serverUrl, token, onViewMembers, onSessionExpired }: OverviewProps) {
   const presence = useProjectPresence(detail.id);
   const onlineCount = presence.ready
     ? detail.members.filter((m) => presence.isOnline(m.id) === true).length
@@ -48,10 +52,13 @@ function Overview({ detail, onViewMembers }: OverviewProps) {
         </button>
       </section>
 
-      <section className="overview__section">
-        <h2>Repository</h2>
-        <p className="overview__note">No Repository Connected. Connecting a repository is not implemented yet.</p>
-      </section>
+      <ProjectRepositorySection
+        serverUrl={serverUrl}
+        token={token}
+        projectId={detail.id}
+        viewerRole={detail.role}
+        onSessionExpired={onSessionExpired}
+      />
 
       <section className="overview__section">
         <h2>Current Tasks</h2>

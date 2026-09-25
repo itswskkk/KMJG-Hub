@@ -22,3 +22,30 @@
   font-style: italic;
   margin: 0.35rem 0 0;
 }
+
+.overview__settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.5rem 0;
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  border-radius: 6px;
+}
+
+.overview__picker ul {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.overview__picker li {
+  padding: 0.2rem 0;
+}
+
+.overview__error {
+  color: #d9534f;
+  font-size: 0.875rem;
+  margin: 0.35rem 0 0;
+}

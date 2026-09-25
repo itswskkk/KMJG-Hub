@@ -17,6 +17,8 @@ import (
 	"github.com/itswskkk/KMJG-Hub/server/internal/directmessage"
 	"github.com/itswskkk/KMJG-Hub/server/internal/friend"
 	"github.com/itswskkk/KMJG-Hub/server/internal/friend/friendtest"
+	"github.com/itswskkk/KMJG-Hub/server/internal/github"
+	"github.com/itswskkk/KMJG-Hub/server/internal/github/githubtest"
 	"github.com/itswskkk/KMJG-Hub/server/internal/httpapi"
 	"github.com/itswskkk/KMJG-Hub/server/internal/invitation"
 	"github.com/itswskkk/KMJG-Hub/server/internal/notification"
@@ -160,7 +162,14 @@ func newTestRouterWithHandlers() (http.Handler, *httpapi.Handlers, *fakeProjectR
 
 	dmSvc := &directmessage.Service{Repo: newFakeDMRepo(users, projectRepo, friendRepo), Publisher: &directmessage.RealtimePublisher{Hub: hub}, Notifier: notificationSvc}
 
-	handlers := &httpapi.Handlers{Auth: authSvc, Projects: projectSvc, Invitations: invitationSvc, Chat: chatSvc, Profiles: profileSvc, Friends: friendSvc, DirectMessages: dmSvc, Notifications: notificationSvc, Realtime: hub, Presence: presenceSvc}
+	githubSvc := &github.Service{
+		Store: githubtest.NewMemory(), Client: githubtest.NewClient(testWebhookSecret),
+		Membership: github.ProjectMembership{Projects: projectSvc},
+		Publisher:  &github.RealtimePublisher{Hub: hub}, Notifier: notificationSvc,
+		EncryptionKey: make([]byte, github.TokenKeySize),
+	}
+
+	handlers := &httpapi.Handlers{Auth: authSvc, Projects: projectSvc, Invitations: invitationSvc, Chat: chatSvc, Profiles: profileSvc, Friends: friendSvc, DirectMessages: dmSvc, Notifications: notificationSvc, GitHub: githubSvc, Realtime: hub, Presence: presenceSvc}
 	router := httpapi.NewRouter(handlers, []string{"http://localhost:1420"})
 	return router, handlers, projectRepo
 }

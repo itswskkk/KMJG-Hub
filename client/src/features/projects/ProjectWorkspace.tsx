@@ -146,7 +146,7 @@ function ProjectWorkspace({
           </p>
         )}
         {!error && !detail && <p className="project-workspace__loading">Loading project...</p>}
-        {detail && section === "overview" && <Overview detail={detail} onViewMembers={() => setSection("members")} />}
+        {detail && section === "overview" && <Overview detail={detail} serverUrl={serverUrl} token={token} onViewMembers={() => setSection("members")} onSessionExpired={onSessionExpired} />}
         {detail && section === "chat" && (
           <ProjectChat detail={detail} serverUrl={serverUrl} token={token} viewerUserId={viewerUserId} onSessionExpired={onSessionExpired} />
         )}

@@ -11,3 +11,7 @@ export async function loadSessions():Promise<SavedSession[]>{if(!isTauri())retur
 export async function deleteSession(serverUrl:string):Promise<void>{if(isTauri())await invoke("delete_session",{serverUrl})}
 export async function selectGitRepository(projectId:string):Promise<GitRepository|null>{if(!isTauri())throw new Error("Repository detection is available in the desktop app");return invoke("select_git_repository",{projectId})}
 export async function currentGitRepository(projectId:string):Promise<GitRepository|null>{if(!isTauri())return null;return invoke("current_git_repository",{projectId})}
+
+/** Opens an external URL (e.g. GitHub OAuth) in the system browser: via the
+ * Tauri opener plugin in the desktop app, or a new tab in a plain browser. */
+export async function openExternalUrl(url:string):Promise<void>{if(isTauri()){const {openUrl}=await import("@tauri-apps/plugin-opener");await openUrl(url);return}window.open(url,"_blank","noopener,noreferrer")}

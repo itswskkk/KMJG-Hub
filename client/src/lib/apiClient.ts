@@ -709,3 +709,94 @@ export function markNotificationRead(serverUrl: string, token: string, notificat
 export function deleteNotification(serverUrl: string, token: string, notificationId: string): Promise<void> {
   return request<void>(serverUrl, `/api/v1/notifications/${encodeURIComponent(notificationId)}`, { method: "DELETE", headers: authHeaders(token) });
 }
+
+// --- GitHub integration (docs/PRD.md "GitHub Authentication", "Project Git Integration") ---
+
+/** The viewer's GitHub connection state on this Server. `configured` is
+ * false when the Server administrator has not set up a GitHub OAuth App. */
+export interface GitHubStatus {
+  configured: boolean;
+  connected: boolean;
+  login?: string;
+  connected_at?: string;
+}
+
+/** A repository the viewer's GitHub account can access (not yet connected). */
+export interface GitHubRepository {
+  external_repo_id: number;
+  owner_login: string;
+  name: string;
+  full_name: string;
+  html_url: string;
+  private: boolean;
+  default_branch: string;
+}
+
+/** The repository connected to a Project. */
+export interface ProjectRepository {
+  id: string;
+  project_id: string;
+  provider: string;
+  external_repo_id: number;
+  owner_login: string;
+  name: string;
+  full_name: string;
+  html_url: string;
+  default_branch: string;
+  connected_by_user_id: string;
+  connected_at: string;
+  post_pushes_to_chat: boolean;
+  notify_all_members: boolean;
+  notify_all_branches: boolean;
+}
+
+export interface ProjectRepositoryInfo {
+  configured: boolean;
+  repository: ProjectRepository | null;
+}
+
+export function getGitHubStatus(serverUrl: string, token: string): Promise<GitHubStatus> {
+  return request<GitHubStatus>(serverUrl, "/api/v1/auth/github", { headers: authHeaders(token) });
+}
+
+/** Starts GitHub OAuth: returns the GitHub authorization URL to open in the
+ * user's browser. GitHub redirects back to the Server, which links the
+ * account; poll getGitHubStatus to observe completion. */
+export async function startGitHubConnect(serverUrl: string, token: string): Promise<string> {
+  const body = await request<{ authorize_url: string }>(serverUrl, "/api/v1/auth/github/authorize", { headers: authHeaders(token) });
+  return body.authorize_url;
+}
+
+export function disconnectGitHub(serverUrl: string, token: string): Promise<void> {
+  return request<void>(serverUrl, "/api/v1/auth/github", { method: "DELETE", headers: authHeaders(token) });
+}
+
+export async function listAvailableRepos(serverUrl: string, token: string): Promise<GitHubRepository[]> {
+  const body = await request<{ repositories: GitHubRepository[] | null }>(serverUrl, "/api/v1/github/repositories", { headers: authHeaders(token) });
+  return body.repositories ?? [];
+}
+
+export function connectRepository(serverUrl: string, token: string, projectId: string, externalRepoId: number): Promise<ProjectRepository> {
+  return request<ProjectRepository>(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/github/connect`, {
+    method: "POST", headers: authHeaders(token), body: JSON.stringify({ external_repo_id: externalRepoId }),
+  });
+}
+
+export function getProjectRepository(serverUrl: string, token: string, projectId: string): Promise<ProjectRepositoryInfo> {
+  return request<ProjectRepositoryInfo>(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/github/info`, { headers: authHeaders(token) });
+}
+
+export function disconnectRepository(serverUrl: string, token: string, projectId: string): Promise<void> {
+  return request<void>(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/github/disconnect`, { method: "DELETE", headers: authHeaders(token) });
+}
+
+export function updateGitHubNotificationConfig(
+  serverUrl: string,
+  token: string,
+  projectId: string,
+  config: { post_to_chat: boolean; all_members: boolean; all_branches: boolean },
+): Promise<ProjectRepository> {
+  return request<ProjectRepository>(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/github/notifications`, {
+    method: "PUT", headers: authHeaders(token), body: JSON.stringify(config),
+  });
+}

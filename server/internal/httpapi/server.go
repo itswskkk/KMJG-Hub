@@ -10,6 +10,7 @@ import (
 	"github.com/itswskkk/KMJG-Hub/server/internal/chat"
 	"github.com/itswskkk/KMJG-Hub/server/internal/directmessage"
 	"github.com/itswskkk/KMJG-Hub/server/internal/friend"
+	"github.com/itswskkk/KMJG-Hub/server/internal/github"
 	"github.com/itswskkk/KMJG-Hub/server/internal/invitation"
 	"github.com/itswskkk/KMJG-Hub/server/internal/notification"
 	"github.com/itswskkk/KMJG-Hub/server/internal/presence"
@@ -34,6 +35,7 @@ type Handlers struct {
 	Friends        *friend.Service
 	DirectMessages *directmessage.Service
 	Notifications  *notification.Service
+	GitHub         *github.Service
 	Realtime       *realtime.Hub
 	Presence       *presence.Service
 	WorkContexts   *workcontext.Service
@@ -121,6 +123,24 @@ func NewRouter(h *Handlers, allowedOrigins []string) http.Handler {
 	mux.Handle("GET /api/v1/notifications", authed(http.HandlerFunc(h.handleListNotifications)))
 	mux.Handle("POST /api/v1/notifications/{id}/read", authed(http.HandlerFunc(h.handleMarkNotificationRead)))
 	mux.Handle("DELETE /api/v1/notifications/{id}", authed(http.HandlerFunc(h.handleDeleteNotification)))
+
+	mux.Handle("GET /api/v1/auth/github", authed(http.HandlerFunc(h.handleGitHubStatus)))
+	mux.Handle("GET /api/v1/auth/github/authorize", authed(http.HandlerFunc(h.handleGitHubAuthorize)))
+	mux.Handle("DELETE /api/v1/auth/github", authed(http.HandlerFunc(h.handleGitHubDisconnect)))
+	mux.Handle("GET /api/v1/github/repositories", authed(http.HandlerFunc(h.handleListGitHubRepositories)))
+	mux.Handle("POST /api/v1/projects/{id}/github/connect", authed(http.HandlerFunc(h.handleConnectProjectRepository)))
+	mux.Handle("GET /api/v1/projects/{id}/github/info", authed(http.HandlerFunc(h.handleGetProjectRepository)))
+	mux.Handle("DELETE /api/v1/projects/{id}/github/disconnect", authed(http.HandlerFunc(h.handleDisconnectProjectRepository)))
+	mux.Handle("PUT /api/v1/projects/{id}/github/notifications", authed(http.HandlerFunc(h.handleUpdateGitHubNotifications)))
+
+	// Not wrapped in requireAuth: GitHub's OAuth redirect lands in the
+	// user's system browser without a KMJG Hub session; the signed,
+	// expiring OAuth state identifies the user instead (see
+	// handleGitHubCallback).
+	mux.HandleFunc("GET /api/v1/auth/github/callback", h.handleGitHubCallback)
+	// Not wrapped in requireAuth: GitHub authenticates webhook deliveries
+	// with an HMAC-SHA256 signature (see handleGitHubWebhook).
+	mux.HandleFunc("POST /api/v1/github/webhooks", h.handleGitHubWebhook)
 
 	// Not wrapped in requireAuth: a browser's native WebSocket API cannot
 	// set an Authorization header on the upgrade request, so this

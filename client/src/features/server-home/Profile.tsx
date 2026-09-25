@@ -9,6 +9,7 @@ import {
   setProfilePrivacy,
   updateProfile,
 } from "../../lib/apiClient";
+import GitHubConnection from "./GitHubConnection";
 import "./Profile.css";
 
 interface ProfileProps {
@@ -270,6 +271,8 @@ function Profile({ serverUrl, token, onBack, onSessionExpired }: ProfileProps) {
               </div>
             </form>
           </section>
+
+          <GitHubConnection serverUrl={serverUrl} token={token} onSessionExpired={onSessionExpired} />
         </>
       )}
     </main>

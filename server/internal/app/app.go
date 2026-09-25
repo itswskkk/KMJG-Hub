@@ -7,6 +7,7 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"github.com/itswskkk/KMJG-Hub/server/internal/config"
 	"github.com/itswskkk/KMJG-Hub/server/internal/directmessage"
 	"github.com/itswskkk/KMJG-Hub/server/internal/friend"
+	"github.com/itswskkk/KMJG-Hub/server/internal/github"
 	"github.com/itswskkk/KMJG-Hub/server/internal/httpapi"
 	"github.com/itswskkk/KMJG-Hub/server/internal/invitation"
 	"github.com/itswskkk/KMJG-Hub/server/internal/notification"
@@ -141,6 +143,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Publisher: &directmessage.RealtimePublisher{Hub: hub},
 		Notifier:  notificationService,
 	}
+	githubService, err := newGitHubService(cfg, pool, projectService, hub, notificationService)
+	if err != nil {
+		cancel()
+		hub.Shutdown()
+		hub.Wait()
+		pool.Close()
+		return nil, err
+	}
 	hub.OnUserOnline = presenceService.HandleUserOnline
 	hub.OnUserOffline = presenceService.HandleUserOffline
 
@@ -154,6 +164,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Friends:        friendService,
 		DirectMessages: directMessageService,
 		Notifications:  notificationService,
+		GitHub:         githubService,
 		Realtime:       hub,
 		Presence:       presenceService,
 		WorkContexts:   workContextService,
@@ -176,6 +187,42 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}()
 
 	return a, nil
+}
+
+// newGitHubService wires the optional GitHub integration. Without an OAuth
+// App client ID/secret the service has no Client and reports "not
+// configured"; without a configured token encryption key a random dev-only
+// key is generated, so stored tokens do not survive a restart.
+func newGitHubService(cfg config.Config, pool *pgxpool.Pool, projects *project.Service, hub *realtime.Hub, notifier github.Notifier) (*github.Service, error) {
+	key := cfg.GitHubTokenEncryptionKey
+	if key == nil {
+		key = make([]byte, github.TokenKeySize)
+		if _, err := rand.Read(key); err != nil {
+			return nil, fmt.Errorf("generate github token key: %w", err)
+		}
+		if cfg.GitHubConfigured() {
+			slog.Warn("app: KMJG_GITHUB_TOKEN_ENCRYPTION_KEY is not set; using a random dev-only key — connected GitHub accounts must reconnect after every restart")
+		}
+	}
+	svc := &github.Service{
+		Store:         postgres.NewGitHubStore(pool),
+		Membership:    github.ProjectMembership{Projects: projects},
+		Publisher:     &github.RealtimePublisher{Hub: hub},
+		Notifier:      notifier,
+		EncryptionKey: key,
+	}
+	if cfg.GitHubConfigured() {
+		svc.Client = &github.APIClient{
+			ClientID: cfg.GitHubClientID, ClientSecret: cfg.GitHubClientSecret,
+			WebhookSecret: cfg.GitHubWebhookSecret,
+		}
+		if cfg.GitHubWebhookSecret == "" {
+			slog.Warn("app: KMJG_GITHUB_WEBHOOK_SECRET is not set; GitHub webhook deliveries will be rejected")
+		}
+	} else {
+		slog.Info("app: GitHub integration not configured (KMJG_GITHUB_CLIENT_ID / KMJG_GITHUB_CLIENT_SECRET unset)")
+	}
+	return svc, nil
 }
 
 // runRetentionSweep permanently purges soft-deleted messages past their

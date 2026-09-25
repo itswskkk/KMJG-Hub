@@ -3,6 +3,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"strconv"
@@ -27,6 +28,23 @@ type Config struct {
 	// attachment limits. Zero is never accepted: deployments must have bounds.
 	MaxUploadBytes         int64
 	MaxProjectStorageBytes int64
+
+	// GitHub integration (docs/PRD.md "GitHub Authentication", "Project Git
+	// Integration"). All optional: with no OAuth App client ID/secret the
+	// Server runs with GitHub features reporting "not configured".
+	GitHubClientID      string
+	GitHubClientSecret  string
+	GitHubWebhookSecret string
+	// GitHubTokenEncryptionKey is the decoded 32-byte AES-256 key for
+	// encrypting GitHub access tokens at rest
+	// (KMJG_GITHUB_TOKEN_ENCRYPTION_KEY, standard base64). Nil when unset;
+	// internal/app then generates a dev-only random key with a warning.
+	GitHubTokenEncryptionKey []byte
+}
+
+// GitHubConfigured reports whether a GitHub OAuth App is configured.
+func (c Config) GitHubConfigured() bool {
+	return c.GitHubClientID != "" && c.GitHubClientSecret != ""
 }
 
 // Load builds a Config from environment variables, applying simple-for-v1
@@ -58,6 +76,17 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg.MaxUploadBytes, cfg.MaxProjectStorageBytes = maxUpload, maxProjectStorage
+
+	cfg.GitHubClientID = getEnv("KMJG_GITHUB_CLIENT_ID", "")
+	cfg.GitHubClientSecret = getEnv("KMJG_GITHUB_CLIENT_SECRET", "")
+	cfg.GitHubWebhookSecret = getEnv("KMJG_GITHUB_WEBHOOK_SECRET", "")
+	if raw := getEnv("KMJG_GITHUB_TOKEN_ENCRYPTION_KEY", ""); raw != "" {
+		key, err := base64.StdEncoding.DecodeString(raw)
+		if err != nil || len(key) != 32 {
+			return Config{}, fmt.Errorf("KMJG_GITHUB_TOKEN_ENCRYPTION_KEY must be 32 bytes, base64-encoded")
+		}
+		cfg.GitHubTokenEncryptionKey = key
+	}
 
 	return cfg, nil
 }
