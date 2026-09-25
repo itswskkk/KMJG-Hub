@@ -54,7 +54,7 @@ async function request<T>(
     response = await fetch(url, {
       ...init,
       headers: {
-        "Content-Type": "application/json",
+		...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
         ...init?.headers,
       },
     });
@@ -119,6 +119,8 @@ export function logout(serverUrl: string, token: string): Promise<void> {
   });
 }
 
+export function validateSession(serverUrl:string,token:string):Promise<KmjgUser>{return request(serverUrl,"/api/v1/auth/session",{headers:{Authorization:`Bearer ${token}`}})}
+
 /** True when the server rejected the request because the session token is
  * missing, expired, or revoked — the Client should send the user back to
  * Login rather than show this as an ordinary error. */
@@ -158,6 +160,29 @@ export interface ProjectChatMessage {
   author_username: string;
   body: string;
   created_at: string;
+	attachments: ProjectChatAttachment[];
+}
+
+export interface ProjectChatAttachment {
+	id: string;
+	message_id: string;
+	project_id: string;
+	filename: string;
+	content_type: string;
+	size_bytes: number;
+}
+
+export interface ProjectChatPage {
+	messages: ProjectChatMessage[];
+	next_cursor: string;
+}
+
+export interface ProjectWorkContext {
+	project_id: string;
+	user_id: string;
+	working: boolean;
+	status_mode: "automatic" | "manual";
+	current_branch?: string;
 }
 
 export type TaskStatus = "todo" | "in_progress" | "done";
@@ -238,13 +263,13 @@ export function getProject(serverUrl: string, token: string, projectId: string):
   });
 }
 
-export async function listProjectMessages(serverUrl: string, token: string, projectId: string): Promise<ProjectChatMessage[]> {
-  const body = await request<{ messages: ProjectChatMessage[] | null }>(
-    serverUrl,
-    `/api/v1/projects/${encodeURIComponent(projectId)}/chat/messages`,
-    { headers: authHeaders(token) },
-  );
-  return body.messages ?? [];
+export async function listProjectMessages(serverUrl: string, token: string, projectId: string, cursor = ""): Promise<ProjectChatPage> {
+	const body = await request<{ messages: ProjectChatMessage[] | null; next_cursor?: string }>(
+		serverUrl,
+		`/api/v1/projects/${encodeURIComponent(projectId)}/chat/messages${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+		{ headers: authHeaders(token) },
+	);
+	return { messages: body.messages ?? [], next_cursor: body.next_cursor ?? "" };
 }
 
 export function sendProjectMessage(serverUrl: string, token: string, projectId: string, body: string): Promise<ProjectChatMessage> {
@@ -261,6 +286,25 @@ export function deleteProjectMessage(serverUrl: string, token: string, projectId
     `/api/v1/projects/${encodeURIComponent(projectId)}/chat/messages/${encodeURIComponent(messageId)}`,
     { method: "DELETE", headers: authHeaders(token) },
   );
+}
+
+export function uploadProjectAttachment(serverUrl: string,token: string,projectId: string,file: File,body: string):Promise<ProjectChatMessage>{
+	const form=new FormData();form.append("file",file);form.append("body",body);
+	return request<ProjectChatMessage>(serverUrl,`/api/v1/projects/${encodeURIComponent(projectId)}/chat/attachments`,{method:"POST",headers:authHeaders(token),body:form});
+}
+
+export async function downloadProjectAttachment(serverUrl:string,token:string,projectId:string,attachment:ProjectChatAttachment):Promise<void>{
+	const response=await fetch(new URL(`/api/v1/projects/${encodeURIComponent(projectId)}/chat/attachments/${encodeURIComponent(attachment.id)}`,serverUrl),{headers:authHeaders(token)});
+	if(!response.ok){let detail:ErrorResponseBody|undefined;try{detail=await response.json() as ErrorResponseBody}catch{};throw new ApiError(response.status,detail?.error.code??"unknown_error",detail?.error.message??`Request failed with status ${response.status}`)}
+	const url=URL.createObjectURL(await response.blob());const link=document.createElement("a");link.href=url;link.download=attachment.filename;link.click();URL.revokeObjectURL(url);
+}
+
+export async function listProjectWorkContexts(serverUrl:string,token:string,projectId:string):Promise<ProjectWorkContext[]>{
+	const body=await request<{contexts:ProjectWorkContext[]|null}>(serverUrl,`/api/v1/projects/${encodeURIComponent(projectId)}/work-contexts`,{headers:authHeaders(token)});return body.contexts??[];
+}
+
+export function updateProjectWorkContext(serverUrl:string,token:string,projectId:string,input:{working:boolean;status_mode:"automatic"|"manual";current_branch:string}):Promise<ProjectWorkContext>{
+	return request(serverUrl,`/api/v1/projects/${encodeURIComponent(projectId)}/work-context`,{method:"PUT",headers:authHeaders(token),body:JSON.stringify(input)});
 }
 
 export async function listProjectTasks(serverUrl: string, token: string, projectId: string): Promise<ProjectTask[]> {

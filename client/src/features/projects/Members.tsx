@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { ApiError, DirectInvitation, InviteCredential, ProjectDetail, ProjectMember, cancelInvitation, createDirectInvitation, createInviteCredential, listInviteCredentials, listProjectInvitations, removeProjectMember, revokeInviteCredential } from "../../lib/apiClient";
 import { ProjectPresence, useProjectPresence } from "../presence/PresenceProvider";
+import { useProjectWorkContexts } from "../work-context/useProjectWorkContexts";
 import "./Members.css";
 
 interface MembersProps {
@@ -38,6 +39,7 @@ interface MembersProps {
 function Members({ detail, serverUrl, token, viewerUserId, onMemberRemoved }: MembersProps) {
   const [selected, setSelected] = useState<ProjectMember | null>(null);
   const presence = useProjectPresence(detail.id);
+	const {contexts:workContexts}=useProjectWorkContexts(serverUrl,token,detail.id);
   const [recipient, setRecipient] = useState("");
   const [expiresIn, setExpiresIn] = useState("7d");
   const [pending, setPending] = useState<DirectInvitation[]>([]);
@@ -118,7 +120,7 @@ function Members({ detail, serverUrl, token, viewerUserId, onMemberRemoved }: Me
             <button type="button" className="members__row" onClick={() => setSelected(member)}>
               <span className="members__identity">
                 <PresenceDot presence={presence} userId={member.id} />
-                <span><span className="members__name">{member.username}</span>{member.current_task_title && <small className="members__current-task">Current task: {member.current_task_title}</small>}</span>
+				<span><span className="members__name">{member.username}</span>{workContexts[member.id]&&<small className="members__current-task">{workContexts[member.id].working?"Working":"Not working"}{workContexts[member.id].current_branch?` · ${workContexts[member.id].current_branch}`:""}</small>}{member.current_task_title && <small className="members__current-task">Current task: {member.current_task_title}</small>}</span>
               </span>
               <span className="members__role">{member.role}</span>
             </button>
@@ -130,6 +132,7 @@ function Members({ detail, serverUrl, token, viewerUserId, onMemberRemoved }: Me
         <MemberDetail
           member={selected}
           presence={presence}
+		  workContext={workContexts[selected.id]}
           canRemove={canRemoveMember(detail.role, viewerUserId, selected)}
           serverUrl={serverUrl}
           token={token}
@@ -182,9 +185,10 @@ interface MemberDetailProps {
   projectId: string;
   onRemoved: (userId: string) => void;
   onClose: () => void;
+	workContext?: import("../../lib/apiClient").ProjectWorkContext;
 }
 
-function MemberDetail({ member, presence, canRemove, serverUrl, token, projectId, onRemoved, onClose }: MemberDetailProps) {
+function MemberDetail({ member, presence, workContext, canRemove, serverUrl, token, projectId, onRemoved, onClose }: MemberDetailProps) {
   const online = presence.isOnline(member.id);
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -217,9 +221,7 @@ function MemberDetail({ member, presence, canRemove, serverUrl, token, projectId
           {online === undefined ? "Presence unknown" : online ? "● Online" : "○ Offline"}
         </p>
 
-        <p className="members__note">
-          Work status and current branch are not implemented yet.
-        </p>
+		{online&&<p className="members__note">Work status: {workContext?.working?"Working":"Not working"}<br/>Current branch: {workContext?.current_branch??"Not reported"}</p>}
 
         <div className="member-detail__actions">
           <button type="button" disabled title="Direct Messages are not implemented yet">

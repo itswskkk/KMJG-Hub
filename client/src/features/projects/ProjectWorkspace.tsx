@@ -5,6 +5,7 @@ import Members from "./Members";
 import ProjectChat from "./ProjectChat";
 import ProjectTasks from "./ProjectTasks";
 import { useProjectTaskEvents } from "../presence/PresenceProvider";
+import WorkContextPanel from "../work-context/WorkContextPanel";
 import "./ProjectWorkspace.css";
 
 interface ProjectWorkspaceProps {
@@ -138,6 +139,7 @@ function ProjectWorkspace({
       </aside>
 
       <main className="project-workspace__content">
+		{detail&&<WorkContextPanel serverUrl={serverUrl} token={token} projectId={projectId} viewerUserId={viewerUserId}/>}
         {error && (
           <p className="project-workspace__error" role="alert">
             {error}

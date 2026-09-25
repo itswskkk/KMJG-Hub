@@ -4,9 +4,11 @@ import {
   ProjectChatMessage,
   ProjectDetail,
   deleteProjectMessage,
+	downloadProjectAttachment,
   isSessionExpired,
   listProjectMessages,
   sendProjectMessage,
+	uploadProjectAttachment,
 } from "../../lib/apiClient";
 import { useProjectChatEvents } from "../presence/PresenceProvider";
 import "./ProjectChat.css";
@@ -37,6 +39,9 @@ function ProjectChat({ detail, serverUrl, token, viewerUserId, onSessionExpired 
   const [sending, setSending] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+	const [nextCursor,setNextCursor]=useState("");
+	const [loadingOlder,setLoadingOlder]=useState(false);
+	const [attachment,setAttachment]=useState<File|null>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const realtimeEvents = useProjectChatEvents(detail.id);
   const draftCharacterCount = Array.from(draft).length;
@@ -46,9 +51,10 @@ function ProjectChat({ detail, serverUrl, token, viewerUserId, onSessionExpired 
     setLoading(true);
     setError(null);
     listProjectMessages(serverUrl, token, detail.id)
-      .then((history) => {
+      .then((page) => {
         if (!cancelled) {
-          setMessages((current) => sortMessages([...history, ...current.filter((message) => !history.some((item) => item.id === message.id))]));
+		  setMessages((current) => sortMessages([...page.messages, ...current.filter((message) => !page.messages.some((item) => item.id === message.id))]));
+		  setNextCursor(page.next_cursor);
         }
       })
       .catch((err) => {
@@ -92,19 +98,24 @@ function ProjectChat({ detail, serverUrl, token, viewerUserId, onSessionExpired 
   const handleSubmit = async (event?: FormEvent) => {
     event?.preventDefault();
     const body = draft.trim();
-    if (!body || sending || draftCharacterCount > MAX_MESSAGE_CHARACTERS) return;
+	if ((!body && !attachment) || sending || draftCharacterCount > MAX_MESSAGE_CHARACTERS) return;
     setSending(true);
     setError(null);
     try {
-      const message = await sendProjectMessage(serverUrl, token, detail.id, body);
+	  const message = attachment
+		? await uploadProjectAttachment(serverUrl,token,detail.id,attachment,body)
+		: await sendProjectMessage(serverUrl, token, detail.id, body);
       setMessages((current) => mergeMessage(current, message));
       setDraft("");
+	  setAttachment(null);
     } catch (err) {
       handleError(err, "Could not send the message.");
     } finally {
       setSending(false);
     }
   };
+
+	const loadOlder=async()=>{if(!nextCursor||loadingOlder)return;setLoadingOlder(true);setError(null);try{const page=await listProjectMessages(serverUrl,token,detail.id,nextCursor);setMessages((current)=>sortMessages([...page.messages,...current]));setNextCursor(page.next_cursor)}catch(err){handleError(err,"Could not load older messages.")}finally{setLoadingOlder(false)}};
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -143,6 +154,7 @@ function ProjectChat({ detail, serverUrl, token, viewerUserId, onSessionExpired 
       {error && <p className="project-chat__error" role="alert">{error}</p>}
 
       <div className="project-chat__timeline" ref={timelineRef} aria-live="polite">
+		{nextCursor && <button type="button" className="project-chat__older" disabled={loadingOlder} onClick={()=>void loadOlder()}>{loadingOlder?"Loading…":"Load older messages"}</button>}
         {loading && <p className="project-chat__state">Loading messages...</p>}
         {!loading && messages.length === 0 && <p className="project-chat__state">No messages yet. Start the conversation.</p>}
         {messages.map((message) => {
@@ -158,7 +170,8 @@ function ProjectChat({ detail, serverUrl, token, viewerUserId, onSessionExpired 
                   </button>
                 )}
               </div>
-              <p>{message.body}</p>
+			  {message.body && <p>{message.body}</p>}
+			  {(message.attachments??[]).map((item)=><button type="button" className="project-chat__attachment" key={item.id} onClick={()=>void downloadProjectAttachment(serverUrl,token,detail.id,item).catch((err)=>handleError(err,"Could not download the attachment."))}>📎 {item.filename} ({formatBytes(item.size_bytes)})</button>)}
             </article>
           );
         })}
@@ -174,17 +187,20 @@ function ProjectChat({ detail, serverUrl, token, viewerUserId, onSessionExpired 
           rows={2}
         />
         <div className="project-chat__composer-actions">
+		  <label className="project-chat__file">Attach file<input type="file" onChange={(event)=>setAttachment(event.target.files?.[0]??null)} /></label>
+		  {attachment && <span title={attachment.name}>{attachment.name}</span>}
           <span className={draftCharacterCount > MAX_MESSAGE_CHARACTERS ? "project-chat__count--invalid" : undefined}>
             {draftCharacterCount.toLocaleString()} / {MAX_MESSAGE_CHARACTERS.toLocaleString()}
           </span>
-          <button type="submit" disabled={sending || draft.trim().length === 0 || draftCharacterCount > MAX_MESSAGE_CHARACTERS}>
+		  <button type="submit" disabled={sending || (!draft.trim()&&!attachment) || draftCharacterCount > MAX_MESSAGE_CHARACTERS}>
             {sending ? "Sending..." : "Send"}
           </button>
         </div>
       </form>
-      <p className="project-chat__attachment-note">File attachments are not available yet.</p>
     </section>
   );
 }
+
+function formatBytes(bytes:number):string{if(bytes<1024)return `${bytes} B`;if(bytes<1024*1024)return `${(bytes/1024).toFixed(1)} KB`;return `${(bytes/1024/1024).toFixed(1)} MB`}
 
 export default ProjectChat;

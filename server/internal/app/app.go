@@ -26,6 +26,7 @@ import (
 	"github.com/itswskkk/KMJG-Hub/server/internal/storage"
 	"github.com/itswskkk/KMJG-Hub/server/internal/store/postgres"
 	"github.com/itswskkk/KMJG-Hub/server/internal/task"
+	"github.com/itswskkk/KMJG-Hub/server/internal/workcontext"
 )
 
 // sessionSweepInterval is how often the Hub re-validates every open
@@ -104,23 +105,30 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Repo:       postgres.NewChatRepository(pool),
 		Membership: projectService,
 		Publisher:  &chat.RealtimePublisher{Hub: hub},
+		Storage:    fileStore, MaxUploadBytes: cfg.MaxUploadBytes,
+		MaxProjectStorageBytes: cfg.MaxProjectStorageBytes,
 	}
 	taskService := &task.Service{
 		Repo:       postgres.NewTaskRepository(pool),
 		Membership: projectService,
 		Publisher:  &task.RealtimePublisher{Hub: hub},
 	}
+	workContextService := &workcontext.Service{
+		Repo: postgres.NewWorkContextRepository(pool), Online: hub,
+		Membership: projectService, Publisher: &workcontext.RealtimePublisher{Hub: hub},
+	}
 	hub.OnUserOnline = presenceService.HandleUserOnline
 	hub.OnUserOffline = presenceService.HandleUserOffline
 
 	handlers := &httpapi.Handlers{
-		Auth:        authService,
-		Projects:    projectService,
-		Invitations: invitationService,
-		Chat:        chatService,
-		Tasks:       taskService,
-		Realtime:    hub,
-		Presence:    presenceService,
+		Auth:         authService,
+		Projects:     projectService,
+		Invitations:  invitationService,
+		Chat:         chatService,
+		Tasks:        taskService,
+		Realtime:     hub,
+		Presence:     presenceService,
+		WorkContexts: workContextService,
 	}
 	router := httpapi.NewRouter(handlers, cfg.AllowedOrigins)
 

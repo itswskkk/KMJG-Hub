@@ -31,6 +31,12 @@ export interface ProjectMessageEvent {
   author_username: string;
   body: string;
   created_at: string;
+	attachments: { id:string; message_id:string; project_id:string; filename:string; content_type:string; size_bytes:number }[];
+}
+
+export interface ProjectWorkContextEvent {
+	project_id:string; user_id:string; working:boolean;
+	status_mode:"automatic"|"manual"; current_branch?:string;
 }
 
 export interface ProjectMessageDeletedEvent {
@@ -52,6 +58,7 @@ export interface RealtimeClientHandlers {
   onProjectMessageCreated?: (data: ProjectMessageEvent) => void;
   onProjectMessageDeleted?: (data: ProjectMessageDeletedEvent) => void;
   onProjectTaskChanged?: (data: ProjectTaskChangedEvent) => void;
+	onProjectWorkContextUpdated?: (data: ProjectWorkContextEvent) => void;
   /** The Server rejected the session (invalid/expired/revoked) — the same
    * condition the Client already treats as a sign-out over HTTP
    * (apiClient's isSessionExpired). Reconnecting with the same token would
@@ -166,6 +173,9 @@ export class RealtimeClient {
       case "project.task.changed":
         this.handlers.onProjectTaskChanged?.(envelope.data as ProjectTaskChangedEvent);
         break;
+	  case "project.work-context.updated":
+		this.handlers.onProjectWorkContextUpdated?.(envelope.data as ProjectWorkContextEvent);
+		break;
       case "error":
         // The Server closes the connection right after; stop here instead
         // of letting the upcoming close event schedule a doomed retry with

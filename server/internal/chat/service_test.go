@@ -3,11 +3,13 @@ package chat_test
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/itswskkk/KMJG-Hub/server/internal/chat"
+	"github.com/itswskkk/KMJG-Hub/server/internal/storage"
 )
 
 type fakeRepo struct {
@@ -17,6 +19,7 @@ type fakeRepo struct {
 	deleteErr   error
 	purgeCutoff time.Time
 	listLimit   int
+	attachment  chat.Attachment
 }
 
 func (f *fakeRepo) Create(_ context.Context, projectID, authorID, body string) (*chat.Message, error) {
@@ -28,8 +31,25 @@ func (f *fakeRepo) Create(_ context.Context, projectID, authorID, body string) (
 	f.message = message
 	return message, nil
 }
-func (f *fakeRepo) ListRecent(_ context.Context, _, _ string, limit int) ([]chat.Message, error) {
+func (f *fakeRepo) ListPage(_ context.Context, _, _ string, _ *chat.Cursor, limit int) ([]chat.Message, error) {
 	f.listLimit = limit
+	return nil, nil
+}
+func (f *fakeRepo) CreateWithAttachment(_ context.Context, projectID, authorID, body string, attachment chat.Attachment, _ int64) (*chat.Message, error) {
+	attachment.ID = "a1"
+	attachment.MessageID = "m-attachment"
+	attachment.ProjectID = projectID
+	f.attachment = attachment
+	return &chat.Message{ID: "m-attachment", ProjectID: projectID, AuthorID: authorID, Body: body, Attachments: []chat.Attachment{attachment}, CreatedAt: time.Now()}, nil
+}
+func (f *fakeRepo) GetAttachment(context.Context, string, string, string) (*chat.Attachment, error) {
+	if f.attachment.ID == "" {
+		return nil, chat.ErrNotFound
+	}
+	copy := f.attachment
+	return &copy, nil
+}
+func (f *fakeRepo) ListExpiredAttachmentStorageIDs(context.Context, time.Time) ([]string, error) {
 	return nil, nil
 }
 func (f *fakeRepo) SoftDelete(_ context.Context, projectID, messageID, _ string) (*chat.Message, error) {
@@ -73,14 +93,14 @@ func TestSendValidatesTrimsPersistsThenPublishes(t *testing.T) {
 	}
 }
 
-func TestListRecentUsesBoundedHistoryLimit(t *testing.T) {
+func TestListPageUsesBoundedHistoryLimit(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := &chat.Service{Repo: repo}
-	if _, err := svc.ListRecent(context.Background(), "u1", "p1"); err != nil {
-		t.Fatalf("ListRecent: %v", err)
+	if _, err := svc.ListPage(context.Background(), "u1", "p1", ""); err != nil {
+		t.Fatalf("ListPage: %v", err)
 	}
-	if repo.listLimit != chat.RecentMessageLimit {
-		t.Fatalf("limit = %d, want %d", repo.listLimit, chat.RecentMessageLimit)
+	if repo.listLimit != chat.RecentMessageLimit+1 {
+		t.Fatalf("limit = %d, want %d", repo.listLimit, chat.RecentMessageLimit+1)
 	}
 }
 
@@ -145,5 +165,50 @@ func TestPurgeExpiredDeletedUsesThirtyDayCutoff(t *testing.T) {
 	want := now.Add(-30 * 24 * time.Hour)
 	if !repo.purgeCutoff.Equal(want) {
 		t.Fatalf("cutoff = %v, want %v", repo.purgeCutoff, want)
+	}
+}
+
+func TestSendAndOpenAttachmentUsesOpaqueStorageAndPublishes(t *testing.T) {
+	store, err := storage.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := &fakeRepo{}
+	publisher := &fakePublisher{}
+	svc := &chat.Service{Repo: repo, Storage: store, MaxUploadBytes: 1024, MaxProjectStorageBytes: 4096, Membership: fakeMembership{ids: []string{"u1"}}, Publisher: publisher}
+	message, err := svc.SendAttachment(context.Background(), "u1", "p1", " note ", "note.txt", "text/plain", 5, strings.NewReader("hello"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.Body != "note" || repo.attachment.StorageID == "" || repo.attachment.StorageID == "note.txt" {
+		t.Fatalf("unexpected attachment message: %+v", message)
+	}
+	attachment, reader, err := svc.OpenAttachment(context.Background(), "u1", "p1", "a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	content := new(strings.Builder)
+	if _, err := io.Copy(content, reader); err != nil {
+		t.Fatal(err)
+	}
+	if attachment.Filename != "note.txt" || content.String() != "hello" {
+		t.Fatalf("attachment=%+v content=%q", attachment, content.String())
+	}
+	if len(publisher.created) != 1 {
+		t.Fatalf("created recipients=%v", publisher.created)
+	}
+}
+
+func TestSendAttachmentRejectsConfiguredFileLimit(t *testing.T) {
+	store, err := storage.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := &chat.Service{Repo: &fakeRepo{}, Storage: store, MaxUploadBytes: 4, MaxProjectStorageBytes: 100}
+	_, err = svc.SendAttachment(context.Background(), "u1", "p1", "", "large.bin", "application/octet-stream", 5, strings.NewReader("12345"))
+	var validation *chat.ValidationError
+	if !errors.As(err, &validation) {
+		t.Fatalf("expected validation error, got %v", err)
 	}
 }

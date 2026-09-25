@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -49,7 +50,7 @@ func (f *fakeChatRepo) Create(_ context.Context, projectID, authorID, body strin
 	return &copy, nil
 }
 
-func (f *fakeChatRepo) ListRecent(_ context.Context, projectID, viewerID string, limit int) ([]chat.Message, error) {
+func (f *fakeChatRepo) ListPage(_ context.Context, projectID, viewerID string, _ *chat.Cursor, limit int) ([]chat.Message, error) {
 	if _, ok := f.role(projectID, viewerID); !ok {
 		return nil, chat.ErrNotFound
 	}
@@ -60,6 +61,15 @@ func (f *fakeChatRepo) ListRecent(_ context.Context, projectID, viewerID string,
 		messages = messages[len(messages)-limit:]
 	}
 	return append([]chat.Message(nil), messages...), nil
+}
+func (f *fakeChatRepo) CreateWithAttachment(context.Context, string, string, string, chat.Attachment, int64) (*chat.Message, error) {
+	return nil, errors.New("not implemented")
+}
+func (f *fakeChatRepo) GetAttachment(context.Context, string, string, string) (*chat.Attachment, error) {
+	return nil, chat.ErrNotFound
+}
+func (f *fakeChatRepo) ListExpiredAttachmentStorageIDs(context.Context, time.Time) ([]string, error) {
+	return nil, nil
 }
 
 func (f *fakeChatRepo) SoftDelete(_ context.Context, projectID, messageID, actorID string) (*chat.Message, error) {

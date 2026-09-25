@@ -1,4 +1,27 @@
-## Resume Here
+## Current Release Readiness (2026-09-25)
+
+The Tasks checkpoint is committed locally in `233bb00`. The current working
+tree completes the remaining release-readiness gaps requested by the project
+owner: Project Work Status with manual override, Tauri-native Current Branch
+detection, Project Chat attachments and cursor pagination, secure persisted
+desktop sessions, automated Client tests, and deployment bootstrap/health
+checks.
+
+Current verification is clean: the full Go suite (including the opt-in
+PostgreSQL integration test) and `go vet ./...` pass; Client Vitest tests and
+the production TypeScript/Vite build pass; Tauri `cargo check` and native Rust
+unit tests pass. `docker compose config --quiet` passes after
+`scripts/setup-env.sh` creates a mode-600 ignored `.env`.
+
+**2026-09-25 host deployment smoke test: passed.** After adding the host user
+to the `docker` group and starting a new group shell, `docker compose up
+--build -d` completed successfully. PostgreSQL became healthy, `kmjg-server`
+started and exposed port 8080, and `curl http://localhost:8080/api/v1/health`
+returned `{"status":"ok","service":"kmjg-hub-server","version":"0.1.0"}`.
+The Compose log's optional Buildx/Bake warning did not affect the successful
+standard Docker build.
+
+## Resume Here (historical Tasks checkpoint snapshot)
 
 Latest local feature commit: `b9be2b1` (`feat: complete task assignment flow`)
 on `main`. It and its prerequisite `590d4bf` are **local only and have not
@@ -1292,53 +1315,17 @@ revisited this session:**
 
 ## Known Issues / Blockers
 
-- **Work Status and Current Branch are still not implemented** (Presence and
-  Project-scoped Current Task now are). `docs/ARCHITECTURE.md`
-  "Presence and Work Status Architecture" keeps these as separate, larger
-  pieces of work — Work Status needs its own activity-detection design and
-  explicit user Start/Stop controls; Current Branch needs the Tauri native
-  layer to read local Git state. Members/Member Detail show Current Task data
-  only for the corresponding Project, avoiding cross-Project leakage.
 - **No server-side WebSocket connection-attempt rate limiting** (see
   Implementation Decisions above) — accepted gap for current target scale.
 - **WebSocket server-initiated closes don't send a graceful close frame**
   (see Implementation Decisions above) — cosmetic close-code gap only.
-- Session token is still not persisted across app restarts (unchanged,
-  deferred as before) — this also means the real-time connection has
-  nothing to reconnect *to* after an actual app restart until that lands;
-  reconnect-after-*temporary-disconnect-while-the-app-stays-open* is what
-  this checkpoint implements and verified live.
-- No automated test suite exists for the client (still unaddressed, same
-  gap noted in every previous checkpoint) — this checkpoint's client-side
-  verification is therefore build-correctness (`tsc`) plus the live
-  two-tab browser walkthrough above, not automated tests.
-- **Project Chat file attachments are not implemented.** The text timeline
-  says so explicitly. The Server storage backend and configurable size/quota
-  limits now exist, but metadata migrations, upload/download endpoints, and
-  deletion lifecycle integration remain.
-- **Project Chat exposes only the latest 50 messages and has no Load Older
-  action yet.** The data remains stored; this is a history-navigation gap, not
-  message loss.
 - Docker, PostgreSQL 16 and Cargo/Rust are installed locally. The agent
   sandbox cannot access Docker's socket because it strips the `docker`
-  supplementary group, but a dedicated host PostgreSQL test database is
-  available and Task migrations/repository behavior have been verified there.
+  supplementary group. The host-side Docker Compose smoke test is now verified
+  successfully; this is an agent-sandbox limitation only.
 
 ## Next Steps
 
-1. **Commit Tasks** after reviewing the combined dirty worktree; PostgreSQL,
-   full Server, Client, and Tauri verification are no longer blockers.
-2. **Project Chat attachments and older-history pagination** should follow as
-   a storage/history enhancement once Server storage limits and backend are
-   defined; do not put file bytes in PostgreSQL by default.
-3. **Work Status / Current Branch** is the natural
-   continuation of this checkpoint specifically (same architecture
-   section, same UX sections in Members/Profile) but is a genuinely
-   separate design problem (automatic activity detection rules, manual
-   override precedence, Tauri native Git integration for branch detection)
-   and was explicitly out of scope here.
-4. Session persistence (SQLite via Tauri + OS credential storage) is still
-   deferred — bundle it with "Saved Servers" persistence when the Tauri
-   native layer work starts, as noted in every previous checkpoint.
-5. Confirm with the project owner before starting any of the above — this
-   PROGRESS.md shouldn't be the thing deciding product sequencing.
+1. Put the published Server behind trusted HTTPS before using it over a
+   network; configure allowed origins for the actual deployment.
+2. Commit and push this release-readiness checkpoint.

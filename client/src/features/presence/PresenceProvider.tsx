@@ -6,6 +6,7 @@ import {
   ProjectMessageDeletedEvent,
   ProjectMessageEvent,
   ProjectTaskChangedEvent,
+	ProjectWorkContextEvent,
   RealtimeClient,
   toWebSocketUrl,
 } from "../../lib/realtimeClient";
@@ -26,13 +27,14 @@ interface PresenceState {
   readyProjects: Record<string, boolean>;
   chatEvents: ChatRealtimeEvent[];
   taskEvents: ProjectTaskChangedEvent[];
+	workContextEvents: ProjectWorkContextEvent[];
 }
 
 export type ChatRealtimeEvent =
   | { type: "created"; data: ProjectMessageEvent }
   | { type: "deleted"; data: ProjectMessageDeletedEvent };
 
-const initialState: PresenceState = { connectionStatus: "closed", projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [] };
+const initialState: PresenceState = { connectionStatus: "closed", projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [] };
 
 const PresenceStateContext = createContext<PresenceState>(initialState);
 
@@ -81,7 +83,7 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
               // that next connection's own "connected" must not make this
               // stale (or, for a brand-new project, absent) data look
               // current again.
-              { connectionStatus, projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [] },
+              { connectionStatus, projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [] },
         );
       },
       onSnapshot: (data: PresenceSnapshotEvent) => {
@@ -118,6 +120,9 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
       onProjectTaskChanged: (data) => {
         setState((prev) => ({ ...prev, taskEvents: [...prev.taskEvents.slice(-99), data] }));
       },
+	  onProjectWorkContextUpdated: (data) => {
+		setState((prev)=>({...prev,workContextEvents:[...prev.workContextEvents.slice(-99),data]}));
+	  },
       onAuthError: () => {
         onSessionExpired?.();
       },
@@ -129,6 +134,11 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
   }, [serverUrl, token]);
 
   return <PresenceStateContext.Provider value={state}>{children}</PresenceStateContext.Provider>;
+}
+
+export function useProjectWorkContextEvents(projectId:string):ProjectWorkContextEvent[]{
+	const state=useContext(PresenceStateContext);
+	return useMemo(()=>state.workContextEvents.filter((event)=>event.project_id===projectId),[projectId,state.workContextEvents]);
 }
 
 /** Returns the current connection generation's Project Chat events. HTTP

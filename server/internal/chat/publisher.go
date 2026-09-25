@@ -38,5 +38,6 @@ func messageEvent(message Message) map[string]any {
 		"author_username": message.AuthorUsername,
 		"body":            message.Body,
 		"created_at":      message.CreatedAt,
+		"attachments":     message.Attachments,
 	}
 }

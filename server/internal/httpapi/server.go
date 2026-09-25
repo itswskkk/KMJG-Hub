@@ -13,6 +13,7 @@ import (
 	"github.com/itswskkk/KMJG-Hub/server/internal/project"
 	"github.com/itswskkk/KMJG-Hub/server/internal/realtime"
 	"github.com/itswskkk/KMJG-Hub/server/internal/task"
+	"github.com/itswskkk/KMJG-Hub/server/internal/workcontext"
 )
 
 // Handlers holds the application services the HTTP layer dispatches to.
@@ -20,13 +21,14 @@ import (
 // rather than containing business rules themselves, per
 // docs/ARCHITECTURE.md "Server Internal Architecture".
 type Handlers struct {
-	Auth        *auth.Service
-	Projects    *project.Service
-	Invitations *invitation.Service
-	Chat        *chat.Service
-	Tasks       *task.Service
-	Realtime    *realtime.Hub
-	Presence    *presence.Service
+	Auth         *auth.Service
+	Projects     *project.Service
+	Invitations  *invitation.Service
+	Chat         *chat.Service
+	Tasks        *task.Service
+	Realtime     *realtime.Hub
+	Presence     *presence.Service
+	WorkContexts *workcontext.Service
 
 	// AuthTimeout overrides how long a newly upgraded WebSocket connection
 	// has to send its auth message (see defaultAuthTimeout). Zero means use
@@ -70,6 +72,10 @@ func NewRouter(h *Handlers, allowedOrigins []string) http.Handler {
 	mux.Handle("GET /api/v1/projects/{id}/chat/messages", authed(http.HandlerFunc(h.handleListProjectMessages)))
 	mux.Handle("POST /api/v1/projects/{id}/chat/messages", authed(http.HandlerFunc(h.handleSendProjectMessage)))
 	mux.Handle("DELETE /api/v1/projects/{id}/chat/messages/{messageID}", authed(http.HandlerFunc(h.handleDeleteProjectMessage)))
+	mux.Handle("POST /api/v1/projects/{id}/chat/attachments", authed(http.HandlerFunc(h.handleUploadProjectAttachment)))
+	mux.Handle("GET /api/v1/projects/{id}/chat/attachments/{attachmentID}", authed(http.HandlerFunc(h.handleDownloadProjectAttachment)))
+	mux.Handle("GET /api/v1/projects/{id}/work-contexts", authed(http.HandlerFunc(h.handleListWorkContexts)))
+	mux.Handle("PUT /api/v1/projects/{id}/work-context", authed(http.HandlerFunc(h.handleUpdateWorkContext)))
 	mux.Handle("GET /api/v1/projects/{id}/tasks", authed(http.HandlerFunc(h.handleListTasks)))
 	mux.Handle("POST /api/v1/projects/{id}/tasks", authed(http.HandlerFunc(h.handleCreateTask)))
 	mux.Handle("GET /api/v1/projects/{id}/tasks/{taskID}", authed(http.HandlerFunc(h.handleGetTask)))

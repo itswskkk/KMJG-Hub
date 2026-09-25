@@ -16,3 +16,7 @@
 .project-chat__composer-actions .project-chat__count--invalid { color: #b42318; opacity: 1; font-weight: 600; }
 .project-chat__error { color: #b42318; }
 .project-chat__attachment-note { opacity: 0.55; font-size: 0.8rem; margin: 0.4rem 0 0; }
+.project-chat__older { display: block; margin: 0 auto 0.75rem; }
+.project-chat__attachment { display: block; margin-top: 0.5rem; padding: 0.35rem 0.55rem; font-size: 0.82rem; }
+.project-chat__file { cursor: pointer; font-size: 0.85rem; }
+.project-chat__file input { max-width: 12rem; margin-left: 0.4rem; }

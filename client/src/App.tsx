@@ -6,11 +6,13 @@ import ServerHome from "./features/server-home/ServerHome";
 import CreateProject from "./features/projects/CreateProject";
 import ProjectWorkspace from "./features/projects/ProjectWorkspace";
 import { PresenceProvider } from "./features/presence/PresenceProvider";
-import { ApiError, AuthResponse, checkHealth } from "./lib/apiClient";
+import { ApiError, AuthResponse, checkHealth, validateSession } from "./lib/apiClient";
+import { deleteSession, loadSessions, saveSession } from "./lib/nativeClient";
 import "./App.css";
 
 type Screen =
-  | { kind: "connect" }
+	| { kind: "restoring" }
+	| { kind: "connect" }
   | { kind: "connecting"; serverUrl: string }
   | { kind: "connect-failed"; serverUrl: string; message: string }
   | { kind: "login"; serverUrl: string }
@@ -20,7 +22,12 @@ type Screen =
   | { kind: "project"; serverUrl: string; auth: AuthResponse; projectId: string };
 
 function App() {
-  const [screen, setScreen] = useState<Screen>({ kind: "connect" });
+	const [screen, setScreen] = useState<Screen>({ kind: "restoring" });
+
+	useEffect(()=>{let cancelled=false;(async()=>{for(const saved of await loadSessions()){try{await validateSession(saved.serverUrl,saved.auth.session.token);if(!cancelled){setScreen({kind:"server-home",serverUrl:saved.serverUrl,auth:saved.auth});return}}catch{await deleteSession(saved.serverUrl)}}if(!cancelled)setScreen({kind:"connect"})})().catch(()=>{if(!cancelled)setScreen({kind:"connect"})});return()=>{cancelled=true}},[]);
+
+	const authenticated=(serverUrl:string,auth:AuthResponse)=>{void saveSession(serverUrl,auth).catch(()=>{});setScreen({kind:"server-home",serverUrl,auth})};
+	const sessionInvalid=(serverUrl:string)=>{void deleteSession(serverUrl).catch(()=>{});setScreen({kind:"login",serverUrl})};
 
   // Verify the address the user entered on Connect Server actually reaches a
   // KMJG Hub Server before moving on to authentication, per docs/UX.md
@@ -54,6 +61,9 @@ function App() {
 
   let content: ReactElement;
   switch (screen.kind) {
+	case "restoring":
+	  content=<main className="container"><h1>KMJG Hub</h1><p>Restoring your saved session…</p></main>;
+	  break;
     case "connect":
       content = <ConnectServer onConnect={(serverUrl) => setScreen({ kind: "connecting", serverUrl })} />;
       break;
@@ -84,7 +94,7 @@ function App() {
       content = (
         <Login
           serverUrl={serverUrl}
-          onAuthenticated={(auth) => setScreen({ kind: "server-home", serverUrl, auth })}
+		  onAuthenticated={(auth) => authenticated(serverUrl,auth)}
           onCreateAccount={() => setScreen({ kind: "register", serverUrl })}
           onChangeServer={() => setScreen({ kind: "connect" })}
         />
@@ -97,7 +107,7 @@ function App() {
       content = (
         <Register
           serverUrl={serverUrl}
-          onAuthenticated={(auth) => setScreen({ kind: "server-home", serverUrl, auth })}
+		  onAuthenticated={(auth) => authenticated(serverUrl,auth)}
           onBackToLogin={() => setScreen({ kind: "login", serverUrl })}
         />
       );
@@ -113,7 +123,7 @@ function App() {
           username={auth.user.username}
           onOpenProject={(projectId) => setScreen({ kind: "project", serverUrl, auth, projectId })}
           onCreateProject={() => setScreen({ kind: "create-project", serverUrl, auth })}
-          onSessionExpired={() => setScreen({ kind: "login", serverUrl })}
+		  onSessionExpired={() => sessionInvalid(serverUrl)}
         />
       );
       break;
@@ -141,7 +151,7 @@ function App() {
           projectId={projectId}
           viewerUserId={auth.user.id}
           onBackToServerHome={() => setScreen({ kind: "server-home", serverUrl, auth })}
-          onSessionExpired={() => setScreen({ kind: "login", serverUrl })}
+		  onSessionExpired={() => sessionInvalid(serverUrl)}
         />
       );
       break;
@@ -161,9 +171,9 @@ function App() {
   // treat it the same way an HTTP 401 is already treated elsewhere: return
   // to that Server's Login screen rather than silently retrying with a
   // token the Server has already rejected.
-  function handleSessionInvalid() {
-    if ("serverUrl" in screen) {
-      setScreen({ kind: "login", serverUrl: screen.serverUrl });
+	function handleSessionInvalid() {
+	  if ("serverUrl" in screen) {
+		sessionInvalid(screen.serverUrl);
     }
   }
 

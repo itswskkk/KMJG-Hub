@@ -48,7 +48,7 @@ func (r *ChatRepository) Create(ctx context.Context, projectID, authorID, body s
 	return &message, nil
 }
 
-func (r *ChatRepository) ListRecent(ctx context.Context, projectID, viewerID string, limit int) ([]chat.Message, error) {
+func (r *ChatRepository) ListPage(ctx context.Context, projectID, viewerID string, before *chat.Cursor, limit int) ([]chat.Message, error) {
 	var member bool
 	err := r.pool.QueryRow(ctx, `
 		SELECT EXISTS (
@@ -65,6 +65,12 @@ func (r *ChatRepository) ListRecent(ctx context.Context, projectID, viewerID str
 		return nil, chat.ErrNotFound
 	}
 
+	var beforeTime any
+	var beforeID any
+	if before != nil {
+		beforeTime = before.CreatedAt
+		beforeID = before.ID
+	}
 	rows, err := r.pool.Query(ctx, `
 		SELECT id, project_id, author_user_id, author_username, body, created_at
 		FROM (
@@ -74,6 +80,7 @@ func (r *ChatRepository) ListRecent(ctx context.Context, projectID, viewerID str
 			JOIN users u ON u.id = m.author_user_id
 			WHERE m.project_id = $1
 			  AND m.deleted_at IS NULL
+			  AND ($4::timestamptz IS NULL OR (m.created_at,m.id) < ($4,$5::uuid))
 			  AND EXISTS (
 				SELECT 1 FROM project_members
 				WHERE project_id = m.project_id AND user_id = $2
@@ -82,7 +89,7 @@ func (r *ChatRepository) ListRecent(ctx context.Context, projectID, viewerID str
 			LIMIT $3
 		) recent
 		ORDER BY created_at ASC, id ASC
-	`, projectID, viewerID, limit)
+	`, projectID, viewerID, limit, beforeTime, beforeID)
 	if err != nil {
 		if isInvalidUUID(err) {
 			return nil, chat.ErrNotFound
@@ -100,7 +107,104 @@ func (r *ChatRepository) ListRecent(ctx context.Context, projectID, viewerID str
 		}
 		messages = append(messages, message)
 	}
-	return messages, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(messages) == 0 {
+		return messages, nil
+	}
+	messageByID := make(map[string]*chat.Message, len(messages))
+	ids := make([]string, len(messages))
+	for i := range messages {
+		messageByID[messages[i].ID] = &messages[i]
+		ids[i] = messages[i].ID
+	}
+	attachmentRows, err := r.pool.Query(ctx, `SELECT id,message_id,project_id,storage_id,filename,content_type,size_bytes FROM project_chat_attachments WHERE message_id=ANY($1::uuid[]) ORDER BY created_at,id`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer attachmentRows.Close()
+	for attachmentRows.Next() {
+		var a chat.Attachment
+		if err := attachmentRows.Scan(&a.ID, &a.MessageID, &a.ProjectID, &a.StorageID, &a.Filename, &a.ContentType, &a.SizeBytes); err != nil {
+			return nil, err
+		}
+		messageByID[a.MessageID].Attachments = append(messageByID[a.MessageID].Attachments, a)
+	}
+	return messages, attachmentRows.Err()
+}
+
+func (r *ChatRepository) CreateWithAttachment(ctx context.Context, projectID, authorID, body string, attachment chat.Attachment, maxProjectBytes int64) (*chat.Message, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	// Serialize quota accounting per Project without introducing a mutable
+	// counter that can drift from authoritative attachment rows.
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, projectID); err != nil {
+		return nil, err
+	}
+	var used int64
+	err = tx.QueryRow(ctx, `SELECT COALESCE(sum(size_bytes),0) FROM project_chat_attachments WHERE project_id=$1`, projectID).Scan(&used)
+	if isInvalidUUID(err) {
+		return nil, chat.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if used+attachment.SizeBytes > maxProjectBytes {
+		return nil, chat.ErrStorageLimit
+	}
+	var message chat.Message
+	err = tx.QueryRow(ctx, `WITH inserted AS (
+		INSERT INTO project_chat_messages(project_id,author_user_id,body)
+		SELECT $1,$2,$3 WHERE EXISTS(SELECT 1 FROM project_members WHERE project_id=$1 AND user_id=$2)
+		RETURNING id,project_id,author_user_id,body,created_at)
+		SELECT i.id,i.project_id,i.author_user_id,u.username,i.body,i.created_at FROM inserted i JOIN users u ON u.id=i.author_user_id`, projectID, authorID, body).Scan(&message.ID, &message.ProjectID, &message.AuthorID, &message.AuthorUsername, &message.Body, &message.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) || isInvalidUUID(err) {
+		return nil, chat.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	attachment.MessageID = message.ID
+	attachment.ProjectID = projectID
+	err = tx.QueryRow(ctx, `INSERT INTO project_chat_attachments(message_id,project_id,storage_id,filename,content_type,size_bytes) VALUES($1,$2,$3,$4,$5,$6) RETURNING id`, message.ID, projectID, attachment.StorageID, attachment.Filename, attachment.ContentType, attachment.SizeBytes).Scan(&attachment.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	message.Attachments = []chat.Attachment{attachment}
+	return &message, nil
+}
+
+func (r *ChatRepository) GetAttachment(ctx context.Context, projectID, attachmentID, viewerID string) (*chat.Attachment, error) {
+	var a chat.Attachment
+	err := r.pool.QueryRow(ctx, `SELECT a.id,a.message_id,a.project_id,a.storage_id,a.filename,a.content_type,a.size_bytes FROM project_chat_attachments a JOIN project_chat_messages m ON m.id=a.message_id WHERE a.project_id=$1 AND a.id=$2 AND m.deleted_at IS NULL AND EXISTS(SELECT 1 FROM project_members WHERE project_id=a.project_id AND user_id=$3)`, projectID, attachmentID, viewerID).Scan(&a.ID, &a.MessageID, &a.ProjectID, &a.StorageID, &a.Filename, &a.ContentType, &a.SizeBytes)
+	if errors.Is(err, pgx.ErrNoRows) || isInvalidUUID(err) {
+		return nil, chat.ErrNotFound
+	}
+	return &a, err
+}
+
+func (r *ChatRepository) ListExpiredAttachmentStorageIDs(ctx context.Context, cutoff time.Time) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `SELECT a.storage_id FROM project_chat_attachments a JOIN project_chat_messages m ON m.id=a.message_id WHERE m.deleted_at IS NOT NULL AND m.deleted_at <= $1`, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func (r *ChatRepository) SoftDelete(ctx context.Context, projectID, messageID, actorID string) (*chat.Message, error) {
