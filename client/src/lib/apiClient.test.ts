@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  acceptRequest,
+  block,
   getOwnProfile,
+  listFriends,
+  sendFriendRequest,
+  unblock,
   getPublicProfile,
   listProjectMessages,
   setProfilePrivacy,
@@ -55,5 +60,42 @@ describe("Profile API", () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("https://hub.test/api/v1/users/profile/privacy");
     expect(JSON.parse(init.body)).toEqual({ settings: [{ field: "bio", audience: "friends" }] });
+  });
+});
+
+describe("Friends API", () => {
+  it("sends a friend request by username", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ id: "r1", status: "pending" }, 201));
+    vi.stubGlobal("fetch", fetchMock);
+    await sendFriendRequest("https://hub.test", "secret", "bob");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://hub.test/api/v1/friends/requests");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ recipient: "bob" });
+    expect(init.headers.Authorization).toBe("Bearer secret");
+  });
+
+  it("accepts a request by id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ id: "r 1", status: "accepted" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await acceptRequest("https://hub.test", "secret", "r 1");
+    expect(fetchMock.mock.calls[0][0]).toBe("https://hub.test/api/v1/friends/requests/r%201/accept");
+  });
+
+  it("treats a null friends list as empty", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ friends: null })));
+    await expect(listFriends("https://hub.test", "secret")).resolves.toEqual([]);
+  });
+
+  it("blocks and unblocks by user id", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ user_id: "u2", username: "bob", since: "now" }, 201))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await block("https://hub.test", "secret", "u2");
+    await unblock("https://hub.test", "secret", "u2");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ user_id: "u2" });
+    expect(fetchMock.mock.calls[1][0]).toBe("https://hub.test/api/v1/blocked/u2");
+    expect(fetchMock.mock.calls[1][1].method).toBe("DELETE");
   });
 });

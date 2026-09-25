@@ -8,6 +8,7 @@ import (
 
 	"github.com/itswskkk/KMJG-Hub/server/internal/auth"
 	"github.com/itswskkk/KMJG-Hub/server/internal/chat"
+	"github.com/itswskkk/KMJG-Hub/server/internal/friend"
 	"github.com/itswskkk/KMJG-Hub/server/internal/invitation"
 	"github.com/itswskkk/KMJG-Hub/server/internal/presence"
 	"github.com/itswskkk/KMJG-Hub/server/internal/profile"
@@ -28,6 +29,7 @@ type Handlers struct {
 	Chat         *chat.Service
 	Tasks        *task.Service
 	Profiles     *profile.Service
+	Friends      *friend.Service
 	Realtime     *realtime.Hub
 	Presence     *presence.Service
 	WorkContexts *workcontext.Service
@@ -94,6 +96,18 @@ func NewRouter(h *Handlers, allowedOrigins []string) http.Handler {
 	mux.Handle("GET /api/v1/users/{id}/profile", authed(http.HandlerFunc(h.handleGetPublicProfile)))
 	mux.Handle("PUT /api/v1/users/profile", authed(http.HandlerFunc(h.handleUpdateProfile)))
 	mux.Handle("PUT /api/v1/users/profile/privacy", authed(http.HandlerFunc(h.handleSetPrivacy)))
+
+	mux.Handle("POST /api/v1/friends/requests", authed(http.HandlerFunc(h.handleSendFriendRequest)))
+	mux.Handle("GET /api/v1/friends/requests/incoming", authed(http.HandlerFunc(h.handleListIncoming)))
+	mux.Handle("GET /api/v1/friends/requests/outgoing", authed(http.HandlerFunc(h.handleListOutgoing)))
+	mux.Handle("POST /api/v1/friends/requests/{id}/accept", authed(http.HandlerFunc(h.handleAcceptRequest)))
+	mux.Handle("POST /api/v1/friends/requests/{id}/decline", authed(http.HandlerFunc(h.handleDeclineRequest)))
+	mux.Handle("DELETE /api/v1/friends/requests/{id}", authed(http.HandlerFunc(h.handleCancelRequest)))
+	mux.Handle("GET /api/v1/friends", authed(http.HandlerFunc(h.handleGetFriends)))
+	mux.Handle("DELETE /api/v1/friends/{user_id}", authed(http.HandlerFunc(h.handleRemoveFriend)))
+	mux.Handle("POST /api/v1/blocked", authed(http.HandlerFunc(h.handleBlock)))
+	mux.Handle("DELETE /api/v1/blocked/{user_id}", authed(http.HandlerFunc(h.handleUnblock)))
+	mux.Handle("GET /api/v1/blocked", authed(http.HandlerFunc(h.handleListBlocked)))
 
 	// Not wrapped in requireAuth: a browser's native WebSocket API cannot
 	// set an Authorization header on the upgrade request, so this

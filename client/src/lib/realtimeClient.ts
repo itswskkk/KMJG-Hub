@@ -49,6 +49,32 @@ export interface ProjectTaskChangedEvent {
   task_id: string;
 }
 
+export type FriendEventType =
+  | "friend_request.sent"
+  | "friend_request.accepted"
+  | "friend_request.declined"
+  | "friend_request.cancelled"
+  | "friendship.removed"
+  | "user.blocked"
+  | "user.unblocked";
+
+const FRIEND_EVENT_TYPES: ReadonlySet<string> = new Set<FriendEventType>([
+  "friend_request.sent",
+  "friend_request.accepted",
+  "friend_request.declined",
+  "friend_request.cancelled",
+  "friendship.removed",
+  "user.blocked",
+  "user.unblocked",
+]);
+
+/** A friend/block relationship change. Only a reload hint: the HTTP
+ * friends endpoints stay authoritative. */
+export interface FriendRealtimeEvent {
+  type: FriendEventType;
+  data: Record<string, unknown>;
+}
+
 export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "closed";
 
 export interface RealtimeClientHandlers {
@@ -59,6 +85,7 @@ export interface RealtimeClientHandlers {
   onProjectMessageDeleted?: (data: ProjectMessageDeletedEvent) => void;
   onProjectTaskChanged?: (data: ProjectTaskChangedEvent) => void;
 	onProjectWorkContextUpdated?: (data: ProjectWorkContextEvent) => void;
+  onFriendEvent?: (event: FriendRealtimeEvent) => void;
   /** The Server rejected the session (invalid/expired/revoked) — the same
    * condition the Client already treats as a sign-out over HTTP
    * (apiClient's isSessionExpired). Reconnecting with the same token would
@@ -189,6 +216,12 @@ export class RealtimeClient {
         this.handlers.onAuthError();
         break;
       default:
+        if (FRIEND_EVENT_TYPES.has(envelope.type)) {
+          this.handlers.onFriendEvent?.({
+            type: envelope.type as FriendEventType,
+            data: (envelope.data ?? {}) as Record<string, unknown>,
+          });
+        }
         break;
     }
   }

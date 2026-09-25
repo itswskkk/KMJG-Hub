@@ -1,6 +1,7 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import {
   ConnectionStatus,
+  FriendRealtimeEvent,
   PresenceSnapshotEvent,
   PresenceUpdatedEvent,
   ProjectMessageDeletedEvent,
@@ -28,13 +29,14 @@ interface PresenceState {
   chatEvents: ChatRealtimeEvent[];
   taskEvents: ProjectTaskChangedEvent[];
 	workContextEvents: ProjectWorkContextEvent[];
+  friendEvents: FriendRealtimeEvent[];
 }
 
 export type ChatRealtimeEvent =
   | { type: "created"; data: ProjectMessageEvent }
   | { type: "deleted"; data: ProjectMessageDeletedEvent };
 
-const initialState: PresenceState = { connectionStatus: "closed", projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [] };
+const initialState: PresenceState = { connectionStatus: "closed", projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [], friendEvents: [] };
 
 const PresenceStateContext = createContext<PresenceState>(initialState);
 
@@ -83,7 +85,7 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
               // that next connection's own "connected" must not make this
               // stale (or, for a brand-new project, absent) data look
               // current again.
-              { connectionStatus, projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [] },
+              { connectionStatus, projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [], friendEvents: [] },
         );
       },
       onSnapshot: (data: PresenceSnapshotEvent) => {
@@ -123,6 +125,9 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
 	  onProjectWorkContextUpdated: (data) => {
 		setState((prev)=>({...prev,workContextEvents:[...prev.workContextEvents.slice(-99),data]}));
 	  },
+      onFriendEvent: (event) => {
+        setState((prev) => ({ ...prev, friendEvents: [...prev.friendEvents.slice(-99), event] }));
+      },
       onAuthError: () => {
         onSessionExpired?.();
       },
@@ -134,6 +139,12 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
   }, [serverUrl, token]);
 
   return <PresenceStateContext.Provider value={state}>{children}</PresenceStateContext.Provider>;
+}
+
+/** Returns the current connection generation's friend/block events. Each
+ * is only a reload hint; the HTTP friends endpoints remain authoritative. */
+export function useFriendEvents(): FriendRealtimeEvent[] {
+  return useContext(PresenceStateContext).friendEvents;
 }
 
 export function useProjectWorkContextEvents(projectId:string):ProjectWorkContextEvent[]{

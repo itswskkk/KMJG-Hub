@@ -505,3 +505,101 @@ export function setProfilePrivacy(
     body: JSON.stringify({ settings }),
   });
 }
+
+/** A friend request (docs/PRD.md § Friend Requests). */
+export interface FriendRequest {
+  id: string;
+  sender_id: string;
+  sender_username: string;
+  recipient_id: string;
+  recipient_username: string;
+  status: "pending" | "accepted" | "declined";
+  created_at: string;
+  responded_at?: string | null;
+}
+
+/** One entry in the viewer's friends list. */
+export interface Friend {
+  user_id: string;
+  username: string;
+  since: string;
+}
+
+/** A user the viewer has blocked. */
+export interface BlockedUser {
+  user_id: string;
+  username: string;
+  since: string;
+}
+
+/** Sends a friend request to a user named by username or email. */
+export function sendFriendRequest(serverUrl: string, token: string, recipient: string): Promise<FriendRequest> {
+  return request<FriendRequest>(serverUrl, "/api/v1/friends/requests", {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ recipient }),
+  });
+}
+
+/** Sends a friend request to a user by ID. */
+export function sendFriendRequestToUser(serverUrl: string, token: string, recipientId: string): Promise<FriendRequest> {
+  return request<FriendRequest>(serverUrl, "/api/v1/friends/requests", {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ recipient_id: recipientId }),
+  });
+}
+
+/** Pending friend requests the viewer has received. */
+export async function listIncomingRequests(serverUrl: string, token: string): Promise<FriendRequest[]> {
+  const body = await request<{ requests: FriendRequest[] | null }>(serverUrl, "/api/v1/friends/requests/incoming", { headers: authHeaders(token) });
+  return body.requests ?? [];
+}
+
+/** Pending friend requests the viewer has sent. */
+export async function listOutgoingRequests(serverUrl: string, token: string): Promise<FriendRequest[]> {
+  const body = await request<{ requests: FriendRequest[] | null }>(serverUrl, "/api/v1/friends/requests/outgoing", { headers: authHeaders(token) });
+  return body.requests ?? [];
+}
+
+export function acceptRequest(serverUrl: string, token: string, requestId: string): Promise<FriendRequest> {
+  return request<FriendRequest>(serverUrl, `/api/v1/friends/requests/${encodeURIComponent(requestId)}/accept`, { method: "POST", headers: authHeaders(token) });
+}
+
+export function declineRequest(serverUrl: string, token: string, requestId: string): Promise<FriendRequest> {
+  return request<FriendRequest>(serverUrl, `/api/v1/friends/requests/${encodeURIComponent(requestId)}/decline`, { method: "POST", headers: authHeaders(token) });
+}
+
+/** Withdraws a pending friend request the viewer sent. */
+export function cancelRequest(serverUrl: string, token: string, requestId: string): Promise<void> {
+  return request<void>(serverUrl, `/api/v1/friends/requests/${encodeURIComponent(requestId)}`, { method: "DELETE", headers: authHeaders(token) });
+}
+
+export async function listFriends(serverUrl: string, token: string): Promise<Friend[]> {
+  const body = await request<{ friends: Friend[] | null }>(serverUrl, "/api/v1/friends", { headers: authHeaders(token) });
+  return body.friends ?? [];
+}
+
+export function removeFriend(serverUrl: string, token: string, userId: string): Promise<void> {
+  return request<void>(serverUrl, `/api/v1/friends/${encodeURIComponent(userId)}`, { method: "DELETE", headers: authHeaders(token) });
+}
+
+/** Blocks a user by ID. Removes any friendship and pending requests with them. */
+export function block(serverUrl: string, token: string, userId: string): Promise<BlockedUser> {
+  return request<BlockedUser>(serverUrl, "/api/v1/blocked", { method: "POST", headers: authHeaders(token), body: JSON.stringify({ user_id: userId }) });
+}
+
+/** Blocks a user named by username or email. */
+export function blockByUsername(serverUrl: string, token: string, username: string): Promise<BlockedUser> {
+  return request<BlockedUser>(serverUrl, "/api/v1/blocked", { method: "POST", headers: authHeaders(token), body: JSON.stringify({ username }) });
+}
+
+/** Unblocks a user. Does not restore any previous friendship. */
+export function unblock(serverUrl: string, token: string, userId: string): Promise<void> {
+  return request<void>(serverUrl, `/api/v1/blocked/${encodeURIComponent(userId)}`, { method: "DELETE", headers: authHeaders(token) });
+}
+
+export async function listBlocked(serverUrl: string, token: string): Promise<BlockedUser[]> {
+  const body = await request<{ blocked: BlockedUser[] | null }>(serverUrl, "/api/v1/blocked", { headers: authHeaders(token) });
+  return body.blocked ?? [];
+}

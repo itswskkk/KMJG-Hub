@@ -18,6 +18,7 @@ import (
 	"github.com/itswskkk/KMJG-Hub/server/internal/auth"
 	"github.com/itswskkk/KMJG-Hub/server/internal/chat"
 	"github.com/itswskkk/KMJG-Hub/server/internal/config"
+	"github.com/itswskkk/KMJG-Hub/server/internal/friend"
 	"github.com/itswskkk/KMJG-Hub/server/internal/httpapi"
 	"github.com/itswskkk/KMJG-Hub/server/internal/invitation"
 	"github.com/itswskkk/KMJG-Hub/server/internal/presence"
@@ -120,6 +121,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	profileRepo := postgres.NewProfileRepository(pool, hub)
 	profileService := &profile.Service{Repo: profileRepo, Membership: profileRepo}
+	friendService := &friend.Service{
+		Repo:      postgres.NewFriendRepository(pool),
+		Publisher: &friend.RealtimePublisher{Hub: hub},
+	}
 	hub.OnUserOnline = presenceService.HandleUserOnline
 	hub.OnUserOffline = presenceService.HandleUserOffline
 
@@ -130,6 +135,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Chat:         chatService,
 		Tasks:        taskService,
 		Profiles:     profileService,
+		Friends:      friendService,
 		Realtime:     hub,
 		Presence:     presenceService,
 		WorkContexts: workContextService,

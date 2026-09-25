@@ -236,16 +236,11 @@ func (r *ProfileRepository) SetDefaultPrivacy(ctx any, userID string) error {
 	return nil
 }
 
-// AreFollowers returns whether aUserID and bUserID have a friend
-// relationship. KMJG Hub does not yet have a friend system (Phase 2 of the
-// roadmap — see IMPLEMENTATION-ROADMAP.md — introduces friend requests and
-// friendships); until that schema exists there is nothing in PostgreSQL to
-// query, so this conservatively reports "not friends" rather than querying
-// a table that does not exist. Once Phase 2 lands its friendships table,
-// this method is the one place that needs to change for profile privacy to
-// pick it up automatically.
+// AreFollowers returns whether aUserID and bUserID are friends: an
+// accepted, symmetric friendship recorded in the friendships table (see
+// FriendRepository).
 func (r *ProfileRepository) AreFollowers(ctx any, aUserID, bUserID string) (bool, error) {
-	return false, nil
+	return areFriends(asContext(ctx), r.pool, aUserID, bUserID)
 }
 
 // ShareProject returns true if userID1 and userID2 are both current
@@ -272,12 +267,10 @@ func (r *ProfileRepository) ShareProject(ctx any, userID1, userID2 string) (bool
 	return shares, nil
 }
 
-// IsBlocked returns whether blockerID has blocked userID. Like
-// AreFollowers, KMJG Hub does not yet have a blocking system (also part of
-// Phase 2's friend system), so this conservatively reports "not blocked"
-// until that schema exists.
+// IsBlocked returns whether blockerID has blocked userID, per the blocks
+// table (see FriendRepository.Block).
 func (r *ProfileRepository) IsBlocked(ctx any, userID, blockerID string) (bool, error) {
-	return false, nil
+	return isBlocked(asContext(ctx), r.pool, blockerID, userID)
 }
 
 func isForeignKeyViolation(err error) bool {

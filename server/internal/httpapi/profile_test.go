@@ -153,10 +153,10 @@ func (f *fakeProfileRepo) SetDefaultPrivacy(_ any, userID string) error {
 
 // fakeProfileMembership is a minimal in-memory profile.Membership.
 // ShareProject is backed by the real fakeProjectRepo (Project membership is
-// already a real product feature); friends and blocks have no
-// product-facing way to be created yet (see
-// internal/store/postgres.ProfileRepository's AreFollowers/IsBlocked doc
-// comments — that's Phase 2), so tests set them directly here.
+// already a real product feature); friends and blocks are set directly
+// here so profile privacy tests stay independent of the friend endpoints
+// (internal/store/postgres.ProfileRepository reads the real friendships and
+// blocks tables).
 type fakeProfileMembership struct {
 	projects *fakeProjectRepo
 

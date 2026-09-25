@@ -14,6 +14,8 @@ import (
 
 	"github.com/itswskkk/KMJG-Hub/server/internal/auth"
 	"github.com/itswskkk/KMJG-Hub/server/internal/chat"
+	"github.com/itswskkk/KMJG-Hub/server/internal/friend"
+	"github.com/itswskkk/KMJG-Hub/server/internal/friend/friendtest"
 	"github.com/itswskkk/KMJG-Hub/server/internal/httpapi"
 	"github.com/itswskkk/KMJG-Hub/server/internal/invitation"
 	"github.com/itswskkk/KMJG-Hub/server/internal/presence"
@@ -150,7 +152,9 @@ func newTestRouterWithHandlers() (http.Handler, *httpapi.Handlers, *fakeProjectR
 	profileMembership := newFakeProfileMembership(projectRepo)
 	profileSvc := &profile.Service{Repo: profileRepo, Membership: profileMembership}
 
-	handlers := &httpapi.Handlers{Auth: authSvc, Projects: projectSvc, Invitations: invitationSvc, Chat: chatSvc, Profiles: profileSvc, Realtime: hub, Presence: presenceSvc}
+	friendSvc := &friend.Service{Repo: friendtest.NewMemory(fakeUserDirectory{users}), Publisher: &friend.RealtimePublisher{Hub: hub}}
+
+	handlers := &httpapi.Handlers{Auth: authSvc, Projects: projectSvc, Invitations: invitationSvc, Chat: chatSvc, Profiles: profileSvc, Friends: friendSvc, Realtime: hub, Presence: presenceSvc}
 	router := httpapi.NewRouter(handlers, []string{"http://localhost:1420"})
 	return router, handlers, projectRepo
 }
