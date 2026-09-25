@@ -3,6 +3,24 @@
 KMJG Hub is a self-hosted collaboration hub for software teams, delivered as
 a Go/PostgreSQL Server and a cross-platform Tauri desktop Client.
 
+## Local development (no Docker)
+
+Requirements: Go, Node.js, PostgreSQL (client + server binaries — `initdb`,
+`pg_ctl`, `psql` — on `PATH` or under the standard
+`/usr/lib/postgresql/<version>/bin` layout).
+
+```sh
+scripts/dev-up.sh    # starts a private PostgreSQL, the Go server, and the
+                      # Vite dev client under ./.dev-data (gitignored)
+scripts/dev-down.sh  # stops everything; add --wipe to also delete the data
+```
+
+`dev-up.sh` is idempotent: re-running it reuses existing database data and
+skips services that are already running. It prints the Client, Server and
+PostgreSQL addresses when done, and log locations for each. This is for
+local development only — use the Docker Compose path below for anything
+resembling a real deployment.
+
 ## Start the Server
 
 Requirements: Docker Engine with Docker Compose and OpenSSL.

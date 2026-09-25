@@ -7,3 +7,7 @@
 # Repository-local development tooling and compiler caches.
 .tools/
 .cache/
+
+# Local dev stack state (scripts/dev-up.sh): PostgreSQL data, file storage,
+# logs and PIDs. Never shared, never part of a deployment.
+.dev-data/
