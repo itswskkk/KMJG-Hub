@@ -1,3 +1,132 @@
+## v1 Feature-Complete: Phases 1-11 + Security Fix (2026-09-26)
+
+This checkpoint closes out the entire remaining `docs/PRD.md` v1 scope. The
+previous checkpoint (below) found the implemented slice was "a subset of the
+PRD v1 scope — the 'Server-level social' half of the product has not been
+started." This checkpoint implements all of it, in 11 sequential phases plus
+one cross-cutting security fix, each independently committed, tested
+(`go build`, `go vet`, `gofmt -l`, `go test`, `go test -race`, `npm run
+build`, `npx vitest run`, and `cargo check` where Tauri was touched), and
+verified against a real PostgreSQL instance via opt-in integration tests
+before moving to the next phase.
+
+**Commits, in order:**
+
+1. `b3a3ef7` — **User Profiles**: display name/avatar/bio, field-level
+   privacy (7 fields × 5 audiences), offline hides live fields.
+2. `f992132` — **Friends & Blocking**: requests, symmetric friendships,
+   blocking removes friendship and disables DMs/requests both ways.
+3. `6d30125` — **Direct Messages**: access requires friends OR shared
+   Project (re-checked every send), 30-day soft-delete retention matching
+   Project Chat.
+4. `35c4958` — **Notifications**: persistent + real-time, wired into task
+   assignment, task comments, DMs, friend requests, and invitations;
+   creation is best-effort and never blocks the primary action.
+5. `87142a2` — **GitHub OAuth + Repository Integration**: signed
+   state-token OAuth flow (no server-side state storage), AES-256-GCM
+   token encryption, one repository per Project, webhook with HMAC
+   signature verification, config-gated (`KMJG_GITHUB_*` env vars).
+6. `4c10484` — **Direct File Transfer**: explicit accept/decline before
+   any bytes reach server storage; per-file limit only, excluded from
+   Project storage quota. Verified Project Chat attachment upload/download
+   (already existed from an earlier checkpoint) with a new HTTP round-trip
+   test.
+7. `cb93a07` — **Developer Tools Launcher** (Tauri): Terminal/VS
+   Code/Codex/Claude Code/OpenCode, resolves the project path only from
+   the Client's own locally-stored `project_repositories` table (never an
+   arbitrary path from the frontend), argument-array process spawning
+   (never shell string interpolation).
+8. `6fe05ef` — **Project Lifecycle**: ownership transfer (exactly one
+   Owner, enforced by a unique index and verified under concurrent
+   transfer in an integration test), Owner-only role promotion/demotion,
+   Leave Project (Owner blocked until transfer), 30-day soft-delete +
+   restore, hourly permanent-purge sweep. Kept the new lifecycle methods
+   on a separate `LifecycleRepository` interface specifically so the 11
+   existing test fakes implementing `project.Repository` elsewhere in the
+   codebase did not need to change.
+9. `9fea7e6` — **Git & Files sidebar sections**: configured Git pushes now
+   post to Project Chat as a distinct non-deletable `kind='git'` system
+   message (required a small schema change, migration `0016`, to make
+   `author_user_id` nullable); new `chat.ListAttachments` backs a
+   project-wide Files browser.
+10. `94242d7` — **Multi-Server Support**: "Your Servers" list shown on
+    launch instead of auto-selecting one saved Server; "Switch Server"
+    from Server Home does not log out or invalidate the currently active
+    Server's session, per `docs/PRD.md` "without being required to log
+    out ... first."
+11. `da5a35d` — **Client-Side Offline Cache**: IndexedDB-backed cache for
+    the three highest-value screens (Server Home project list, Project
+    Chat history, Project detail), namespaced per Server address so one
+    saved Server's cache can never leak into another's; connection status
+    is derived from the existing WebSocket client rather than a separate
+    `navigator.onLine` signal. Deliberately does not queue offline
+    message composition — `docs/PRD.md` "Offline Behavior" requires
+    connectivity for that, so there is nothing to queue.
+12. `3d45013` — **Security fix, found during this checkpoint's own
+    closing review**: Phase 8's soft-deletion correctly excluded deleted
+    Projects from `project.Repository`'s own queries, but every other
+    package that authorized access via a plain `project_members`
+    membership check — Chat, Tasks, Work Context, Invitations, and (found
+    during the fix, not in the original list) Direct Messages, Direct
+    File Transfer, and `profile.Service`'s "shared Project" privacy
+    check — did not also verify the Project wasn't deleted. A member of a
+    Project at the time of its deletion could keep reading and writing
+    its Chat/Tasks/Work Context and use its invitations for the full
+    30-day retention window via direct API calls, even though the Client
+    UI could no longer reach the Project. Fixed across ~15 queries in
+    `chat.go`, `tasks.go`, `workcontext.go`, `invitations.go`,
+    `directmessage.go`, `filetransfer.go`, and `profile.go`'s
+    `ShareProject`; proven with a new opt-in integration test
+    (`deleted_project_access_test.go`) that fails on the pre-fix SQL and
+    passes after.
+
+**What this means against `docs/PRD.md`:** every v1 feature area listed in
+that document now has server-side, client-side, and test coverage. Known,
+explicitly out-of-scope-for-v1 simplifications made along the way (not
+gaps against the PRD, which doesn't require them): no resumable file
+transfers, no offline message queueing, no conflict-resolution UI (server
+state always wins on reconnect), GitHub "Sign in with GitHub" as an
+*authentication* method is not built (only *linking* an existing account,
+since the OAuth callback has no way to authenticate an unauthenticated
+browser tab back into a Client session — this is a real architectural
+constraint, not an oversight, documented in the Phase 5 commit), and
+per-repository access-scoped visibility for private repos is not enforced
+beyond what GitHub's own API already returns.
+
+**Verification performed:** every phase's Go changes passed
+`go build ./...`, `go vet ./...`, `gofmt -l .`, `go test ./...`, and `go
+test -race ./...`; every phase's TypeScript changes passed `npm run build`
+and (where tests existed) `npx vitest run`; Tauri changes (Phases 7, 9, 10)
+passed `cargo check` using the project's rustup-managed toolchain at
+`~/.cargo/bin` (the sandbox's system `/usr/bin/cargo` 1.75 is too old for
+this repo's lockfile). Phases with new SQL authorization logic (3, 6, 8, 9,
+and the closing security fix) additionally ran their opt-in PostgreSQL
+integration tests against a real database before being considered done.
+
+**Not yet done / follow-ups for a future checkpoint** (none block v1, all
+were explicitly noted by name during implementation rather than silently
+skipped):
+- Git activity feed shows configuration state, not a scrollable history of
+  past pushes; the Client doesn't yet subscribe to `project.git.*`
+  real-time events.
+- Repository collaborator invitations and automatic repository-access
+  removal on member leave/removal (`docs/PRD.md` "Repository Collaborator
+  Invitations", "Removing Project Members" Git-access clause) are not
+  built.
+- No server-administrator-facing recovery UI for deleted Projects beyond
+  the data model supporting it (the PRD requires this exists at the
+  Server-Administrator level, separate from the per-user 30-day
+  self-restore already built).
+- Offline cache covers 3 screens (Server Home, Project Chat, Project
+  detail); Friends/DMs/Notifications/File Transfers/GitHub info have no
+  offline fallback yet.
+- Direct File Transfer's `expired` status exists in the schema but nothing
+  transitions a transfer into it; uploaded files have no automatic
+  cleanup job (they persist until downloaded and are never purged
+  afterward).
+
+---
+
 ## Live Verification, Docs Audit, and Desktop Build (2026-09-26)
 
 This checkpoint did not add product features. It (1) proved the existing
