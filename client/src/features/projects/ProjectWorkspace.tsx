@@ -3,6 +3,7 @@ import { ApiError, ProjectDetail, getProject, isSessionExpired } from "../../lib
 import Overview from "./Overview";
 import Members from "./Members";
 import ProjectChat from "./ProjectChat";
+import ProjectTasks from "./ProjectTasks";
 import "./ProjectWorkspace.css";
 
 interface ProjectWorkspaceProps {
@@ -14,13 +15,13 @@ interface ProjectWorkspaceProps {
   onSessionExpired: () => void;
 }
 
-type Section = "overview" | "chat" | "members";
+type Section = "overview" | "chat" | "tasks" | "members";
 
 // Sidebar navigation per docs/UX.md "Project Workspace". Overview, Chat,
 // and Members are implemented; the rest are real Project
 // Workspace sections from the same UX spec, shown but disabled rather than
 // omitted, the same treatment as the disabled GitHub login option.
-const DISABLED_SIDEBAR_ITEMS = ["Tasks", "Git", "Files", "Developer Tools"];
+const DISABLED_SIDEBAR_ITEMS = ["Git", "Files", "Developer Tools"];
 
 function ProjectWorkspace({
   serverUrl,
@@ -95,6 +96,9 @@ function ProjectWorkspace({
           >
             Chat
           </button>
+          <button type="button" className={section === "tasks" ? "project-workspace__nav-item project-workspace__nav-item--active" : "project-workspace__nav-item"} onClick={() => setSection("tasks")}>
+            Tasks
+          </button>
           <button
             type="button"
             className={
@@ -129,6 +133,7 @@ function ProjectWorkspace({
         {detail && section === "chat" && (
           <ProjectChat detail={detail} serverUrl={serverUrl} token={token} viewerUserId={viewerUserId} onSessionExpired={onSessionExpired} />
         )}
+        {detail && section === "tasks" && <ProjectTasks detail={detail} serverUrl={serverUrl} token={token} onSessionExpired={onSessionExpired} />}
         {detail && section === "members" && (
           <Members
             detail={detail}

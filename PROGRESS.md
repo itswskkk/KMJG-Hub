@@ -30,6 +30,25 @@ message deletion, and 30-day cleanup lifecycle now work. Invitation
 notifications and real-time invitation events remain separate enhancements;
 persistent invitation state and all required join paths work through HTTP.
 
+### Tasks checkpoint — in progress (uncommitted)
+
+The resumed implementation has added the persistent Server model and HTTP
+surface for Tasks: project-scoped Kanban statuses, task creation/listing and
+detail retrieval, status updates, self-assignment, explicit other-member
+assignment requests with accept/decline, one current task per user, and
+persistent task comments. Migration `0006_tasks.sql` creates the required
+tables. Every data operation derives access from authoritative
+`project_members` rows; client-supplied project/task IDs never grant access.
+
+The Client now enables **Tasks** in Project Workspace and provides a usable
+Kanban board with task creation and manual status moves. The assignment,
+current-task, detail/comments, and real-time task-update UI pieces still need
+to be connected before this checkpoint can be called complete. The Client
+production build and the Server's full `go test ./...` suite passed after the
+change. Go 1.23.1 is installed locally under `.tools/go` (with module/build
+caches under `.cache`), which are intentionally Git-ignored; no system-level
+toolchain or Docker is required for those checks.
+
 **Concurrency note for whoever picks this up:** during this session, another
 Claude Code session (`kmjg-hub-af`) was independently working the same
 checkpoint in the same working directory at the same time. Both sessions

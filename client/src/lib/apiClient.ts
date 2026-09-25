@@ -159,6 +159,23 @@ export interface ProjectChatMessage {
   created_at: string;
 }
 
+export type TaskStatus = "todo" | "in_progress" | "done";
+
+export interface ProjectTask {
+  id: string;
+  project_id: string;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  creator_id: string;
+  creator_username: string;
+  assignee_id: string | null;
+  assignee_username: string | null;
+  due_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface DirectInvitation {
   id: string;
   project_id: string;
@@ -233,6 +250,32 @@ export function deleteProjectMessage(serverUrl: string, token: string, projectId
     `/api/v1/projects/${encodeURIComponent(projectId)}/chat/messages/${encodeURIComponent(messageId)}`,
     { method: "DELETE", headers: authHeaders(token) },
   );
+}
+
+export async function listProjectTasks(serverUrl: string, token: string, projectId: string): Promise<ProjectTask[]> {
+  const body = await request<{ tasks: ProjectTask[] | null }>(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/tasks`, {
+    headers: authHeaders(token),
+  });
+  return body.tasks ?? [];
+}
+
+export function createProjectTask(
+  serverUrl: string,
+  token: string,
+  projectId: string,
+  input: { title: string; description: string },
+): Promise<ProjectTask> {
+  return request<ProjectTask>(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/tasks`, {
+    method: "POST", headers: authHeaders(token), body: JSON.stringify(input),
+  });
+}
+
+export function setProjectTaskStatus(
+  serverUrl: string, token: string, projectId: string, taskId: string, status: TaskStatus,
+): Promise<ProjectTask> {
+  return request<ProjectTask>(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/status`, {
+    method: "PATCH", headers: authHeaders(token), body: JSON.stringify({ status }),
+  });
 }
 
 /** Removes a different member when the authenticated Project role permits it. */

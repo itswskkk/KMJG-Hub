@@ -1,0 +1,13 @@
+.project-tasks__header h2 { margin: 0; }
+.project-tasks__header p, .task-card p, .task-column__empty { opacity: .72; }
+.project-tasks__new { display: grid; grid-template-columns: 1fr 1fr auto; gap: .6rem; margin: 1.5rem 0; }
+.project-tasks__new input { min-width: 0; }
+.project-tasks__error { color: #d33; }
+.project-tasks__board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; align-items: start; }
+.task-column { min-height: 12rem; background: rgba(128,128,128,.08); border-radius: 8px; padding: .75rem; }
+.task-column h3 { margin-top: 0; font-size: 1rem; }
+.task-card { background: canvas; border: 1px solid rgba(128,128,128,.25); border-radius: 6px; padding: .7rem; margin-bottom: .65rem; display: grid; gap: .45rem; }
+.task-card p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.task-card small { opacity: .75; }
+.task-card label { font-size: .8rem; display: grid; gap: .2rem; }
+@media (max-width: 720px) { .project-tasks__new, .project-tasks__board { grid-template-columns: 1fr; } }

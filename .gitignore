@@ -3,3 +3,7 @@
 .env
 .env.*
 !.env.example
+
+# Repository-local development tooling and compiler caches.
+.tools/
+.cache/

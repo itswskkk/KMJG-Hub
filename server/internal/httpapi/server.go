@@ -12,6 +12,7 @@ import (
 	"github.com/itswskkk/KMJG-Hub/server/internal/presence"
 	"github.com/itswskkk/KMJG-Hub/server/internal/project"
 	"github.com/itswskkk/KMJG-Hub/server/internal/realtime"
+	"github.com/itswskkk/KMJG-Hub/server/internal/task"
 )
 
 // Handlers holds the application services the HTTP layer dispatches to.
@@ -23,6 +24,7 @@ type Handlers struct {
 	Projects    *project.Service
 	Invitations *invitation.Service
 	Chat        *chat.Service
+	Tasks       *task.Service
 	Realtime    *realtime.Hub
 	Presence    *presence.Service
 
@@ -68,6 +70,16 @@ func NewRouter(h *Handlers, allowedOrigins []string) http.Handler {
 	mux.Handle("GET /api/v1/projects/{id}/chat/messages", authed(http.HandlerFunc(h.handleListProjectMessages)))
 	mux.Handle("POST /api/v1/projects/{id}/chat/messages", authed(http.HandlerFunc(h.handleSendProjectMessage)))
 	mux.Handle("DELETE /api/v1/projects/{id}/chat/messages/{messageID}", authed(http.HandlerFunc(h.handleDeleteProjectMessage)))
+	mux.Handle("GET /api/v1/projects/{id}/tasks", authed(http.HandlerFunc(h.handleListTasks)))
+	mux.Handle("POST /api/v1/projects/{id}/tasks", authed(http.HandlerFunc(h.handleCreateTask)))
+	mux.Handle("GET /api/v1/projects/{id}/tasks/{taskID}", authed(http.HandlerFunc(h.handleGetTask)))
+	mux.Handle("PATCH /api/v1/projects/{id}/tasks/{taskID}/status", authed(http.HandlerFunc(h.handleSetTaskStatus)))
+	mux.Handle("POST /api/v1/projects/{id}/tasks/{taskID}/assign", authed(http.HandlerFunc(h.handleAssignTask)))
+	mux.Handle("POST /api/v1/projects/{id}/tasks/{taskID}/current", authed(http.HandlerFunc(h.handleSetCurrentTask)))
+	mux.Handle("GET /api/v1/projects/{id}/tasks/{taskID}/comments", authed(http.HandlerFunc(h.handleListTaskComments)))
+	mux.Handle("POST /api/v1/projects/{id}/tasks/{taskID}/comments", authed(http.HandlerFunc(h.handleAddTaskComment)))
+	mux.Handle("POST /api/v1/task-assignment-requests/{requestID}/accept", authed(http.HandlerFunc(h.handleAcceptTaskAssignment)))
+	mux.Handle("POST /api/v1/task-assignment-requests/{requestID}/decline", authed(http.HandlerFunc(h.handleDeclineTaskAssignment)))
 
 	// Not wrapped in requireAuth: a browser's native WebSocket API cannot
 	// set an Authorization header on the upgrade request, so this

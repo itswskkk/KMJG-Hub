@@ -24,6 +24,7 @@ import (
 	"github.com/itswskkk/KMJG-Hub/server/internal/project"
 	"github.com/itswskkk/KMJG-Hub/server/internal/realtime"
 	"github.com/itswskkk/KMJG-Hub/server/internal/store/postgres"
+	"github.com/itswskkk/KMJG-Hub/server/internal/task"
 )
 
 // sessionSweepInterval is how often the Hub re-validates every open
@@ -98,6 +99,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Membership: projectService,
 		Publisher:  &chat.RealtimePublisher{Hub: hub},
 	}
+	taskService := &task.Service{Repo: postgres.NewTaskRepository(pool)}
 	hub.OnUserOnline = presenceService.HandleUserOnline
 	hub.OnUserOffline = presenceService.HandleUserOffline
 
@@ -106,6 +108,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Projects:    projectService,
 		Invitations: invitationService,
 		Chat:        chatService,
+		Tasks:       taskService,
 		Realtime:    hub,
 		Presence:    presenceService,
 	}
