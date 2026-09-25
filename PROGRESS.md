@@ -1,12 +1,10 @@
 ## Resume Here
 
-Last committed base: `205d7ae` (`docs: update PROGRESS.md for presence freshness/lifecycle fix`)
+Latest feature commit: `be47289` (`feat: add project invitations and chat`)
 Branch: `main`, pushed to `origin/main`.
-Working tree: **intentionally dirty** with four verified, uncommitted
-checkpoints: Removing a Project Member, Direct Project Invitations, Invite
-Links/Codes, and Project Chat (text messaging and moderation). Do not discard
-these changes when resuming. No commit or push has been made for Checkpoints
-5–8 yet.
+Working tree was clean immediately after that push. Checkpoints 5–8 are
+verified, committed together in `be47289`, and pushed; do not reimplement or
+discard them when resuming.
 
 Current implementation state:
 - Connect Server: complete
@@ -17,13 +15,14 @@ Current implementation state:
 - **Presence Freshness / Server Lifecycle Fix: complete, committed (commit
   `bf29236`) — see "Checkpoint 4 addendum" below**
 - **Removing a Project Member Experience: implementation complete and
-  verified, uncommitted — see Checkpoint 5 below**
+  verified, committed and pushed in `be47289` — see Checkpoint 5 below**
 - **Direct Project Invitations: implementation complete and verified,
-  uncommitted — see Checkpoint 6 below**
+  committed and pushed in `be47289` — see Checkpoint 6 below**
 - **Invite Links and Codes: implementation complete and verified,
-  uncommitted — see Checkpoint 7 below**
+  committed and pushed in `be47289` — see Checkpoint 7 below**
 - **Project Chat (text messages, realtime delivery, and moderation):
-  implementation complete and verified, uncommitted — see Checkpoint 8 below**
+  implementation complete and verified, committed and pushed in `be47289` —
+  see Checkpoint 8 below**
 
 The next major checkpoint is **Tasks**. Project Chat file attachments remain a
 separate storage checkpoint; the text timeline, history, realtime delivery,
@@ -352,7 +351,7 @@ run for this half (no server/protocol files changed).
 **Committed and pushed** as `bf29236` (`fix: harden realtime presence
 lifecycle`) on `main`; see "Resume Here" / Git status.
 
-### Checkpoint 5: Removing a Project Member Experience (uncommitted)
+### Checkpoint 5: Removing a Project Member Experience (commit `be47289`)
 
 **Scope:** implement the KMJG Hub membership-removal portion of
 `docs/UX.md` "Removing a Project Member Experience". Repository access is
@@ -401,7 +400,7 @@ membership only.
 `server/internal/httpapi/{server.go,projects.go,projects_test.go,websocket_test.go}`,
 and `client/src/{App.tsx,lib/apiClient.ts,features/projects/Members.tsx,features/projects/Members.css,features/projects/ProjectWorkspace.tsx}`.
 
-### Checkpoint 6: Direct Project Invitations (uncommitted)
+### Checkpoint 6: Direct Project Invitations (commit `be47289`)
 
 **Scope:** implement Direct Invitations to an existing account on the same
 KMJG Hub Server. Invite Links/Codes, email delivery, notifications, and Git
@@ -453,7 +452,7 @@ repository invitations are explicitly separate features.
 `server/internal/app/app.go`, `client/src/lib/apiClient.ts`,
 `client/src/features/server-home/ServerHome.tsx`, and the Members UI files.
 
-### Checkpoint 7: Invite Links and Codes (uncommitted)
+### Checkpoint 7: Invite Links and Codes (commit `be47289`)
 
 **Scope:** add shareable Project invite credentials that an authenticated user
 can intentionally submit from Server Home to join immediately as Member. A
@@ -508,7 +507,7 @@ link; both resolve to the same Server-authoritative resource.
 `client/src/features/projects/Members.css`, and
 `client/src/features/server-home/ServerHome.tsx`.
 
-### Checkpoint 8: Project Chat — Text, Realtime, and Moderation (uncommitted)
+### Checkpoint 8: Project Chat — Text, Realtime, and Moderation (commit `be47289`)
 
 **Scope:** implement the usable text-message core of the one primary Project
 Chat specified for v1: persistent recent history, sending, authorized realtime
