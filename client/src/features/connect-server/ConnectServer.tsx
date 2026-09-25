@@ -4,9 +4,14 @@ import "./ConnectServer.css";
 
 interface ConnectServerProps {
   onConnect: (serverUrl: string) => void;
+  /** Present only when this screen was reached from "Your Servers" (via
+   * "+ Add Server"): lets the user return to that list instead of being
+   * stuck here. Omitted on the very first launch, when there is nothing
+   * saved yet to go back to. */
+  onBack?: () => void;
 }
 
-function ConnectServer({ onConnect }: ConnectServerProps) {
+function ConnectServer({ onConnect, onBack }: ConnectServerProps) {
   const [address, setAddress] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -68,6 +73,12 @@ function ConnectServer({ onConnect }: ConnectServerProps) {
 
           <button type="submit">Connect to Server</button>
         </form>
+
+        {onBack && (
+          <button type="button" className="connect-server__back" onClick={onBack}>
+            Back to Your Servers
+          </button>
+        )}
       </div>
     </main>
   );

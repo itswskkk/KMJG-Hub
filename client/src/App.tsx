@@ -1,5 +1,6 @@
 import { ReactElement, useEffect, useState } from "react";
 import ConnectServer from "./features/connect-server/ConnectServer";
+import SavedServers from "./features/connect-server/SavedServers";
 import Login from "./features/auth/Login";
 import Register from "./features/auth/Register";
 import ServerHome from "./features/server-home/ServerHome";
@@ -11,17 +12,23 @@ import FileTransfers from "./features/server-home/FileTransfers";
 import CreateProject from "./features/projects/CreateProject";
 import ProjectWorkspace from "./features/projects/ProjectWorkspace";
 import { PresenceProvider } from "./features/presence/PresenceProvider";
-import { ApiError, AuthResponse, checkHealth, validateSession } from "./lib/apiClient";
+import { ApiError, AuthResponse, checkHealth } from "./lib/apiClient";
 import { deleteSession, loadSessions, saveSession } from "./lib/nativeClient";
 import "./App.css";
 
+// `from` marks a screen reached via "+ Add Server" from "Your Servers"
+// (docs/UX.md "Saved Servers"), so ConnectServer/Login/Register can offer a
+// way back to that list instead of stranding the user mid-connection.
+type ConnectOrigin = "saved-servers" | undefined;
+
 type Screen =
 	| { kind: "restoring" }
-	| { kind: "connect" }
-  | { kind: "connecting"; serverUrl: string }
-  | { kind: "connect-failed"; serverUrl: string; message: string }
-  | { kind: "login"; serverUrl: string }
-  | { kind: "register"; serverUrl: string }
+	| { kind: "connect"; from?: ConnectOrigin }
+  | { kind: "saved-servers" }
+  | { kind: "connecting"; serverUrl: string; from?: ConnectOrigin }
+  | { kind: "connect-failed"; serverUrl: string; message: string; from?: ConnectOrigin }
+  | { kind: "login"; serverUrl: string; from?: ConnectOrigin }
+  | { kind: "register"; serverUrl: string; from?: ConnectOrigin }
   | { kind: "server-home"; serverUrl: string; auth: AuthResponse }
   | { kind: "create-project"; serverUrl: string; auth: AuthResponse }
   | { kind: "profile"; serverUrl: string; auth: AuthResponse }
@@ -34,7 +41,14 @@ type Screen =
 function App() {
 	const [screen, setScreen] = useState<Screen>({ kind: "restoring" });
 
-	useEffect(()=>{let cancelled=false;(async()=>{for(const saved of await loadSessions()){try{await validateSession(saved.serverUrl,saved.auth.session.token);if(!cancelled){setScreen({kind:"server-home",serverUrl:saved.serverUrl,auth:saved.auth});return}}catch{await deleteSession(saved.serverUrl)}}if(!cancelled)setScreen({kind:"connect"})})().catch(()=>{if(!cancelled)setScreen({kind:"connect"})});return()=>{cancelled=true}},[]);
+	// On launch, never auto-pick a Server to sign into (docs/UX.md "KMJG Hub
+	// does not automatically open the user's most recently used Project" —
+	// the same principle applies here: don't guess which Server the user
+	// wants). Zero saved Servers is still the unchanged first-launch path
+	// straight to Connect Server; one or more saved Servers shows "Your
+	// Servers" and lets the user choose (session validity is then checked
+	// per-Server, in SavedServers, only when the user picks one).
+	useEffect(()=>{let cancelled=false;(async()=>{const sessions=await loadSessions();if(!cancelled)setScreen(sessions.length>0?{kind:"saved-servers"}:{kind:"connect"})})().catch(()=>{if(!cancelled)setScreen({kind:"connect"})});return()=>{cancelled=true}},[]);
 
 	const authenticated=(serverUrl:string,auth:AuthResponse)=>{void saveSession(serverUrl,auth).catch(()=>{});setScreen({kind:"server-home",serverUrl,auth})};
 	const sessionInvalid=(serverUrl:string)=>{void deleteSession(serverUrl).catch(()=>{});setScreen({kind:"login",serverUrl})};
@@ -48,12 +62,13 @@ function App() {
       return;
     }
     const serverUrl = screen.serverUrl;
+    const from = screen.from;
     let cancelled = false;
 
     checkHealth(serverUrl)
       .then(() => {
         if (!cancelled) {
-          setScreen({ kind: "login", serverUrl });
+          setScreen({ kind: "login", serverUrl, from });
         }
       })
       .catch((err) => {
@@ -61,7 +76,7 @@ function App() {
           return;
         }
         const message = err instanceof ApiError ? err.message : "Could not reach the server.";
-        setScreen({ kind: "connect-failed", serverUrl, message });
+        setScreen({ kind: "connect-failed", serverUrl, message, from });
       });
 
     return () => {
@@ -75,7 +90,22 @@ function App() {
 	  content=<main className="container"><h1>KMJG Hub</h1><p>Restoring your saved session…</p></main>;
 	  break;
     case "connect":
-      content = <ConnectServer onConnect={(serverUrl) => setScreen({ kind: "connecting", serverUrl })} />;
+      content = (
+        <ConnectServer
+          onConnect={(serverUrl) => setScreen({ kind: "connecting", serverUrl, from: screen.from })}
+          onBack={screen.from === "saved-servers" ? () => setScreen({ kind: "saved-servers" }) : undefined}
+        />
+      );
+      break;
+
+    case "saved-servers":
+      content = (
+        <SavedServers
+          onConnected={(serverUrl, auth) => setScreen({ kind: "server-home", serverUrl, auth })}
+          onNeedsLogin={(serverUrl) => setScreen({ kind: "login", serverUrl, from: "saved-servers" })}
+          onAddServer={() => setScreen({ kind: "connect", from: "saved-servers" })}
+        />
+      );
       break;
 
     case "connecting":
@@ -93,20 +123,21 @@ function App() {
           <h1>Couldn&apos;t Connect</h1>
           <p>{screen.serverUrl}</p>
           <p>{screen.message}</p>
-          <button onClick={() => setScreen({ kind: "connect" })}>Try a Different Server</button>
-          <button onClick={() => setScreen({ kind: "connecting", serverUrl: screen.serverUrl })}>Retry</button>
+          <button onClick={() => setScreen({ kind: "connect", from: screen.from })}>Try a Different Server</button>
+          <button onClick={() => setScreen({ kind: "connecting", serverUrl: screen.serverUrl, from: screen.from })}>Retry</button>
         </main>
       );
       break;
 
     case "login": {
       const serverUrl = screen.serverUrl;
+      const from = screen.from;
       content = (
         <Login
           serverUrl={serverUrl}
 		  onAuthenticated={(auth) => authenticated(serverUrl,auth)}
-          onCreateAccount={() => setScreen({ kind: "register", serverUrl })}
-          onChangeServer={() => setScreen({ kind: "connect" })}
+          onCreateAccount={() => setScreen({ kind: "register", serverUrl, from })}
+          onChangeServer={() => setScreen({ kind: "connect", from })}
         />
       );
       break;
@@ -114,11 +145,12 @@ function App() {
 
     case "register": {
       const serverUrl = screen.serverUrl;
+      const from = screen.from;
       content = (
         <Register
           serverUrl={serverUrl}
 		  onAuthenticated={(auth) => authenticated(serverUrl,auth)}
-          onBackToLogin={() => setScreen({ kind: "login", serverUrl })}
+          onBackToLogin={() => setScreen({ kind: "login", serverUrl, from })}
         />
       );
       break;
@@ -139,6 +171,7 @@ function App() {
           onOpenNotifications={() => setScreen({ kind: "notifications", serverUrl, auth })}
           onOpenFileTransfers={() => setScreen({ kind: "file-transfers", serverUrl, auth })}
 		  onSessionExpired={() => sessionInvalid(serverUrl)}
+          onSwitchServer={() => setScreen({ kind: "saved-servers" })}
         />
       );
       break;

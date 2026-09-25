@@ -16,9 +16,14 @@ interface ServerHomeProps {
   onOpenNotifications: () => void;
   onOpenFileTransfers: () => void;
   onSessionExpired: () => void;
+  /** "Switch Server" (docs/PRD.md "Multi-Server Client Support": "Users may
+   * switch between previously connected Servers without being required to
+   * log out of the currently active Server first."): returns to "Your
+   * Servers" while leaving this Server's saved session untouched. */
+  onSwitchServer: () => void;
 }
 
-function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject, onOpenProfile, onOpenFriends, onOpenMessages, onOpenNotifications, onOpenFileTransfers, onSessionExpired }: ServerHomeProps) {
+function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject, onOpenProfile, onOpenFriends, onOpenMessages, onOpenNotifications, onOpenFileTransfers, onSessionExpired, onSwitchServer }: ServerHomeProps) {
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -167,6 +172,9 @@ function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject
           </button>
           <button type="button" onClick={onOpenProfile}>
             Your Profile
+          </button>
+          <button type="button" onClick={onSwitchServer}>
+            Switch Server
           </button>
           <button type="button" className="server-home__logout" onClick={handleLogout} disabled={loggingOut}>
             {loggingOut ? "Logging Out..." : "Log Out"}
