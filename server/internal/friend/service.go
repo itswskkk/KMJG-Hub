@@ -2,6 +2,7 @@ package friend
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 )
 
@@ -11,6 +12,24 @@ import (
 type Service struct {
 	Repo      Repository
 	Publisher Publisher // optional; nil disables real-time events
+	Notifier  Notifier  // optional; nil disables notifications
+}
+
+// Notifier creates persistent notifications. Satisfied by
+// *notification.Service; declared here so this package does not import it.
+type Notifier interface {
+	Notify(ctx context.Context, userID, eventType string, payload any) error
+}
+
+// notify creates a notification best-effort: failures are logged and never
+// fail the primary operation. A nil Notifier disables notifications.
+func (s *Service) notify(ctx context.Context, userID, eventType string, payload any) {
+	if s.Notifier == nil {
+		return
+	}
+	if err := s.Notifier.Notify(ctx, userID, eventType, payload); err != nil {
+		slog.Warn("friend: create notification", "event_type", eventType, "error", err)
+	}
 }
 
 // ResolveUser returns the user ID for a username or email, or ErrNotFound.
@@ -36,6 +55,11 @@ func (s *Service) SendRequest(ctx context.Context, senderID, recipientID string)
 	if s.Publisher != nil {
 		s.Publisher.PublishRequestSent(*req)
 	}
+	s.notify(ctx, req.RecipientID, "friend_request", map[string]any{
+		"sender_id":       req.SenderID,
+		"sender_username": req.SenderUsername,
+		"request_id":      req.ID,
+	})
 	return req, nil
 }
 

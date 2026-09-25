@@ -4,6 +4,7 @@ import {
   DirectMessageDeletedEvent,
   DirectMessageEvent,
   FriendRealtimeEvent,
+  NotificationCreatedEvent,
   PresenceSnapshotEvent,
   PresenceUpdatedEvent,
   ProjectMessageDeletedEvent,
@@ -33,6 +34,7 @@ interface PresenceState {
 	workContextEvents: ProjectWorkContextEvent[];
   friendEvents: FriendRealtimeEvent[];
   dmEvents: DMRealtimeEvent[];
+  notificationEvents: NotificationCreatedEvent[];
 }
 
 export type DMRealtimeEvent =
@@ -43,7 +45,7 @@ export type ChatRealtimeEvent =
   | { type: "created"; data: ProjectMessageEvent }
   | { type: "deleted"; data: ProjectMessageDeletedEvent };
 
-const initialState: PresenceState = { connectionStatus: "closed", projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [], friendEvents: [], dmEvents: [] };
+const initialState: PresenceState = { connectionStatus: "closed", projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [], friendEvents: [], dmEvents: [], notificationEvents: [] };
 
 const PresenceStateContext = createContext<PresenceState>(initialState);
 
@@ -92,7 +94,7 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
               // that next connection's own "connected" must not make this
               // stale (or, for a brand-new project, absent) data look
               // current again.
-              { connectionStatus, projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [], friendEvents: [], dmEvents: [] },
+              { connectionStatus, projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [], friendEvents: [], dmEvents: [], notificationEvents: [] },
         );
       },
       onSnapshot: (data: PresenceSnapshotEvent) => {
@@ -141,6 +143,9 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
       onDirectMessageDeleted: (data) => {
         setState((prev) => ({ ...prev, dmEvents: [...prev.dmEvents.slice(-99), { type: "deleted", data }] }));
       },
+      onNotificationCreated: (data) => {
+        setState((prev) => ({ ...prev, notificationEvents: [...prev.notificationEvents.slice(-99), data] }));
+      },
       onAuthError: () => {
         onSessionExpired?.();
       },
@@ -158,6 +163,13 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
  * history remains authoritative and repairs any events missed offline. */
 export function useDMEvents(): DMRealtimeEvent[] {
   return useContext(PresenceStateContext).dmEvents;
+}
+
+/** Returns the current connection generation's notification.created
+ * events. Each is a live update/reload hint; the HTTP notifications list
+ * (and its unread_count) remains authoritative. */
+export function useNotificationEvents(): NotificationCreatedEvent[] {
+  return useContext(PresenceStateContext).notificationEvents;
 }
 
 /** Returns the current connection generation's friend/block events. Each

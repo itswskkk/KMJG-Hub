@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { ApiError, DirectInvitation, ProjectSummary, acceptInvitation, declineInvitation, isSessionExpired, joinProjectWithInvite, listProjects, listReceivedInvitations, logout } from "../../lib/apiClient";
+import { ApiError, DirectInvitation, ProjectSummary, acceptInvitation, declineInvitation, isSessionExpired, joinProjectWithInvite, listNotifications, listProjects, listReceivedInvitations, logout } from "../../lib/apiClient";
+import { useNotificationEvents } from "../presence/PresenceProvider";
 import "./ServerHome.css";
+import "./Notifications.css";
 
 interface ServerHomeProps {
   serverUrl: string;
@@ -11,10 +13,11 @@ interface ServerHomeProps {
   onOpenProfile: () => void;
   onOpenFriends: () => void;
   onOpenMessages: () => void;
+  onOpenNotifications: () => void;
   onSessionExpired: () => void;
 }
 
-function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject, onOpenProfile, onOpenFriends, onOpenMessages, onSessionExpired }: ServerHomeProps) {
+function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject, onOpenProfile, onOpenFriends, onOpenMessages, onOpenNotifications, onSessionExpired }: ServerHomeProps) {
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -22,6 +25,20 @@ function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject
   const [invitationError, setInvitationError] = useState<string | null>(null);
   const [joinInput, setJoinInput] = useState("");
   const [joining, setJoining] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const notificationEvents = useNotificationEvents();
+  const latestNotification = notificationEvents[notificationEvents.length - 1];
+
+  // Unread badge: the HTTP unread_count is authoritative; each live
+  // notification.created event re-fetches it (and a new project_invitation
+  // also refreshes the invitation list below).
+  useEffect(() => {
+    let cancelled = false;
+    listNotifications(serverUrl, token)
+      .then((page) => { if (!cancelled) setUnreadCount(page.unread_count); })
+      .catch(() => { /* badge is best-effort; the list screen surfaces errors */ });
+    return () => { cancelled = true; };
+  }, [serverUrl, token, latestNotification]);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,13 +66,14 @@ function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverUrl, token]);
 
+  const invitationTrigger = latestNotification?.event_type === "project_invitation" ? latestNotification.id : null;
   useEffect(() => {
     let cancelled = false;
     listReceivedInvitations(serverUrl, token)
       .then((items) => { if (!cancelled) setInvitations(items); })
       .catch((err) => { if (!cancelled) setInvitationError(err instanceof ApiError ? err.message : "Could not load invitations."); });
     return () => { cancelled = true; };
-  }, [serverUrl, token]);
+  }, [serverUrl, token, invitationTrigger]);
 
   async function respond(item: DirectInvitation, accept: boolean) {
     setInvitationError(null);
@@ -104,6 +122,10 @@ function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject
           <p className="server-home__subtitle">Signed in as {username}</p>
         </div>
         <div className="server-home__header-actions">
+          <button type="button" onClick={onOpenNotifications} aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}>
+            Notifications
+            {unreadCount > 0 && <span className="notifications__badge" aria-hidden="true">{unreadCount > 99 ? "99+" : unreadCount}</span>}
+          </button>
           <button type="button" onClick={onOpenMessages}>
             Messages
           </button>

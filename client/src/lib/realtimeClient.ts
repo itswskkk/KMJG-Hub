@@ -91,6 +91,16 @@ export interface DirectMessageDeletedEvent {
   recipient_id: string;
 }
 
+/** A newly created notification for the connected user. Matches the HTTP
+ * notification shape; the HTTP list stays authoritative (unread count etc.). */
+export interface NotificationCreatedEvent {
+  id: string;
+  event_type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+  read_at: string | null;
+}
+
 export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "closed";
 
 export interface RealtimeClientHandlers {
@@ -104,6 +114,7 @@ export interface RealtimeClientHandlers {
   onFriendEvent?: (event: FriendRealtimeEvent) => void;
   onDirectMessageCreated?: (data: DirectMessageEvent) => void;
   onDirectMessageDeleted?: (data: DirectMessageDeletedEvent) => void;
+  onNotificationCreated?: (data: NotificationCreatedEvent) => void;
   /** The Server rejected the session (invalid/expired/revoked) — the same
    * condition the Client already treats as a sign-out over HTTP
    * (apiClient's isSessionExpired). Reconnecting with the same token would
@@ -226,6 +237,9 @@ export class RealtimeClient {
         break;
       case "direct_message.deleted":
         this.handlers.onDirectMessageDeleted?.(envelope.data as DirectMessageDeletedEvent);
+        break;
+      case "notification.created":
+        this.handlers.onNotificationCreated?.(envelope.data as NotificationCreatedEvent);
         break;
       case "error":
         // The Server closes the connection right after; stop here instead

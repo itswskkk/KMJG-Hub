@@ -6,6 +6,7 @@ import ServerHome from "./features/server-home/ServerHome";
 import Profile from "./features/server-home/Profile";
 import Friends from "./features/server-home/Friends";
 import DirectMessages from "./features/server-home/DirectMessages";
+import Notifications from "./features/server-home/Notifications";
 import CreateProject from "./features/projects/CreateProject";
 import ProjectWorkspace from "./features/projects/ProjectWorkspace";
 import { PresenceProvider } from "./features/presence/PresenceProvider";
@@ -25,6 +26,7 @@ type Screen =
   | { kind: "profile"; serverUrl: string; auth: AuthResponse }
   | { kind: "friends"; serverUrl: string; auth: AuthResponse }
   | { kind: "direct-messages"; serverUrl: string; auth: AuthResponse }
+  | { kind: "notifications"; serverUrl: string; auth: AuthResponse }
   | { kind: "project"; serverUrl: string; auth: AuthResponse; projectId: string };
 
 function App() {
@@ -132,6 +134,7 @@ function App() {
           onOpenProfile={() => setScreen({ kind: "profile", serverUrl, auth })}
           onOpenFriends={() => setScreen({ kind: "friends", serverUrl, auth })}
           onOpenMessages={() => setScreen({ kind: "direct-messages", serverUrl, auth })}
+          onOpenNotifications={() => setScreen({ kind: "notifications", serverUrl, auth })}
 		  onSessionExpired={() => sessionInvalid(serverUrl)}
         />
       );
@@ -172,6 +175,22 @@ function App() {
           token={auth.session.token}
           viewerUserId={auth.user.id}
           onBack={() => setScreen({ kind: "server-home", serverUrl, auth })}
+          onSessionExpired={() => sessionInvalid(serverUrl)}
+        />
+      );
+      break;
+    }
+
+    case "notifications": {
+      const { serverUrl, auth } = screen;
+      content = (
+        <Notifications
+          serverUrl={serverUrl}
+          token={auth.session.token}
+          onBack={() => setScreen({ kind: "server-home", serverUrl, auth })}
+          onOpenProject={(projectId) => setScreen({ kind: "project", serverUrl, auth, projectId })}
+          onOpenFriends={() => setScreen({ kind: "friends", serverUrl, auth })}
+          onOpenMessages={() => setScreen({ kind: "direct-messages", serverUrl, auth })}
           onSessionExpired={() => sessionInvalid(serverUrl)}
         />
       );

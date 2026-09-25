@@ -660,3 +660,52 @@ export function sendDM(serverUrl: string, token: string, recipientId: string, bo
 export function deleteDM(serverUrl: string, token: string, messageId: string): Promise<void> {
   return request<void>(serverUrl, `/api/v1/direct-messages/${encodeURIComponent(messageId)}`, { method: "DELETE", headers: authHeaders(token) });
 }
+
+/** Kind of collaboration event a Notification is about
+ * (docs/PRD.md § Notifications). */
+export type NotificationEventType =
+  | "task_assigned"
+  | "task_comment"
+  | "direct_message"
+  | "file_transfer_request"
+  | "project_invitation"
+  | "role_changed"
+  | "git_push"
+  | "friend_request";
+
+/** One persisted, per-user notification. The payload is event-specific
+ * context only — it is never an authorization grant; the Server re-checks
+ * access when the Client opens the underlying resource. */
+export interface Notification {
+  id: string;
+  event_type: NotificationEventType;
+  payload: Record<string, unknown>;
+  created_at: string;
+  read_at: string | null;
+}
+
+export interface NotificationPage {
+  notifications: Notification[];
+  next_cursor: string;
+  unread_count: number;
+}
+
+/** A page of the viewer's notifications, newest first, plus the current
+ * total unread count. Pass the previous page's next_cursor for older ones. */
+export async function listNotifications(serverUrl: string, token: string, cursor = ""): Promise<NotificationPage> {
+  const body = await request<{ notifications: Notification[] | null; next_cursor?: string; unread_count?: number }>(
+    serverUrl,
+    `/api/v1/notifications${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+    { headers: authHeaders(token) },
+  );
+  return { notifications: body.notifications ?? [], next_cursor: body.next_cursor ?? "", unread_count: body.unread_count ?? 0 };
+}
+
+export function markNotificationRead(serverUrl: string, token: string, notificationId: string): Promise<void> {
+  return request<void>(serverUrl, `/api/v1/notifications/${encodeURIComponent(notificationId)}/read`, { method: "POST", headers: authHeaders(token) });
+}
+
+/** Dismisses (deletes) one of the viewer's notifications. */
+export function deleteNotification(serverUrl: string, token: string, notificationId: string): Promise<void> {
+  return request<void>(serverUrl, `/api/v1/notifications/${encodeURIComponent(notificationId)}`, { method: "DELETE", headers: authHeaders(token) });
+}

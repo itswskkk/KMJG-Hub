@@ -11,6 +11,7 @@ import (
 	"github.com/itswskkk/KMJG-Hub/server/internal/directmessage"
 	"github.com/itswskkk/KMJG-Hub/server/internal/friend"
 	"github.com/itswskkk/KMJG-Hub/server/internal/invitation"
+	"github.com/itswskkk/KMJG-Hub/server/internal/notification"
 	"github.com/itswskkk/KMJG-Hub/server/internal/presence"
 	"github.com/itswskkk/KMJG-Hub/server/internal/profile"
 	"github.com/itswskkk/KMJG-Hub/server/internal/project"
@@ -32,6 +33,7 @@ type Handlers struct {
 	Profiles       *profile.Service
 	Friends        *friend.Service
 	DirectMessages *directmessage.Service
+	Notifications  *notification.Service
 	Realtime       *realtime.Hub
 	Presence       *presence.Service
 	WorkContexts   *workcontext.Service
@@ -115,6 +117,10 @@ func NewRouter(h *Handlers, allowedOrigins []string) http.Handler {
 	mux.Handle("GET /api/v1/direct-messages/{user_id}", authed(http.HandlerFunc(h.handleListDMMessages)))
 	mux.Handle("POST /api/v1/direct-messages/{user_id}", authed(http.HandlerFunc(h.handleSendDM)))
 	mux.Handle("DELETE /api/v1/direct-messages/{id}", authed(http.HandlerFunc(h.handleDeleteDM)))
+
+	mux.Handle("GET /api/v1/notifications", authed(http.HandlerFunc(h.handleListNotifications)))
+	mux.Handle("POST /api/v1/notifications/{id}/read", authed(http.HandlerFunc(h.handleMarkNotificationRead)))
+	mux.Handle("DELETE /api/v1/notifications/{id}", authed(http.HandlerFunc(h.handleDeleteNotification)))
 
 	// Not wrapped in requireAuth: a browser's native WebSocket API cannot
 	// set an Authorization header on the upgrade request, so this

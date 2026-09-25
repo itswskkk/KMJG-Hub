@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"time"
 )
@@ -15,6 +16,24 @@ import (
 type Service struct {
 	Repo      Repository
 	Publisher Publisher
+	Notifier  Notifier // optional; nil disables notifications
+}
+
+// Notifier creates persistent notifications. Satisfied by
+// *notification.Service; declared here so this package does not import it.
+type Notifier interface {
+	Notify(ctx context.Context, userID, eventType string, payload any) error
+}
+
+// notify creates a notification best-effort: failures are logged and never
+// fail the primary operation. A nil Notifier disables notifications.
+func (s *Service) notify(ctx context.Context, userID, eventType string, payload any) {
+	if s.Notifier == nil {
+		return
+	}
+	if err := s.Notifier.Notify(ctx, userID, eventType, payload); err != nil {
+		slog.Warn("directmessage: create notification", "event_type", eventType, "error", err)
+	}
 }
 
 func (s *Service) Send(ctx context.Context, senderID, recipientID, body string) (*Message, error) {
@@ -36,6 +55,12 @@ func (s *Service) Send(ctx context.Context, senderID, recipientID, body string) 
 	if s.Publisher != nil {
 		s.Publisher.PublishMessageCreated(*message)
 	}
+	s.notify(ctx, message.RecipientID, "direct_message", map[string]any{
+		"sender_id":       message.SenderID,
+		"sender_username": message.SenderUsername,
+		"message_id":      message.ID,
+		"body_preview":    bodyPreview(message.Body),
+	})
 	return message, nil
 }
 
@@ -87,4 +112,16 @@ func (s *Service) Delete(ctx context.Context, messageID, actorID string) error {
 // soft-deletion retention window has ended.
 func (s *Service) PurgeExpiredDeleted(ctx context.Context, now time.Time) error {
 	return s.Repo.PurgeDeletedBefore(ctx, now.Add(-DeletedMessageRetention))
+}
+
+// bodyPreviewCharacters bounds the message excerpt stored in a
+// direct_message notification payload.
+const bodyPreviewCharacters = 100
+
+func bodyPreview(body string) string {
+	runes := []rune(body)
+	if len(runes) <= bodyPreviewCharacters {
+		return body
+	}
+	return string(runes[:bodyPreviewCharacters])
 }

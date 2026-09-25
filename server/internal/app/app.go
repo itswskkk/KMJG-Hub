@@ -22,6 +22,7 @@ import (
 	"github.com/itswskkk/KMJG-Hub/server/internal/friend"
 	"github.com/itswskkk/KMJG-Hub/server/internal/httpapi"
 	"github.com/itswskkk/KMJG-Hub/server/internal/invitation"
+	"github.com/itswskkk/KMJG-Hub/server/internal/notification"
 	"github.com/itswskkk/KMJG-Hub/server/internal/presence"
 	"github.com/itswskkk/KMJG-Hub/server/internal/profile"
 	"github.com/itswskkk/KMJG-Hub/server/internal/project"
@@ -95,7 +96,6 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	projectService := &project.Service{
 		Repo: postgres.NewProjectRepository(pool),
 	}
-	invitationService := &invitation.Service{Repo: postgres.NewInvitationRepository(pool)}
 
 	// appCtx is App's own child of ctx: it lets Close stop App's background
 	// work unconditionally, rather than depending on ctx ever being
@@ -103,6 +103,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	appCtx, cancel := context.WithCancel(ctx)
 
 	hub := realtime.NewHub(appCtx)
+	notificationService := &notification.Service{
+		Repo:      postgres.NewNotificationRepository(pool),
+		Publisher: &notification.RealtimePublisher{Hub: hub},
+	}
+	invitationService := &invitation.Service{
+		Repo:     postgres.NewInvitationRepository(pool),
+		Notifier: notificationService,
+	}
 	presenceService := &presence.Service{Membership: projectService, Hub: hub}
 	chatService := &chat.Service{
 		Repo:       postgres.NewChatRepository(pool),
@@ -115,6 +123,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Repo:       postgres.NewTaskRepository(pool),
 		Membership: projectService,
 		Publisher:  &task.RealtimePublisher{Hub: hub},
+		Notifier:   notificationService,
 	}
 	workContextService := &workcontext.Service{
 		Repo: postgres.NewWorkContextRepository(pool), Online: hub,
@@ -125,10 +134,12 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	friendService := &friend.Service{
 		Repo:      postgres.NewFriendRepository(pool),
 		Publisher: &friend.RealtimePublisher{Hub: hub},
+		Notifier:  notificationService,
 	}
 	directMessageService := &directmessage.Service{
 		Repo:      postgres.NewDirectMessageRepository(pool),
 		Publisher: &directmessage.RealtimePublisher{Hub: hub},
+		Notifier:  notificationService,
 	}
 	hub.OnUserOnline = presenceService.HandleUserOnline
 	hub.OnUserOffline = presenceService.HandleUserOffline
@@ -142,6 +153,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Profiles:       profileService,
 		Friends:        friendService,
 		DirectMessages: directMessageService,
+		Notifications:  notificationService,
 		Realtime:       hub,
 		Presence:       presenceService,
 		WorkContexts:   workContextService,

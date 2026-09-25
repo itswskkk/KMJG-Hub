@@ -19,6 +19,8 @@ import (
 	"github.com/itswskkk/KMJG-Hub/server/internal/friend/friendtest"
 	"github.com/itswskkk/KMJG-Hub/server/internal/httpapi"
 	"github.com/itswskkk/KMJG-Hub/server/internal/invitation"
+	"github.com/itswskkk/KMJG-Hub/server/internal/notification"
+	"github.com/itswskkk/KMJG-Hub/server/internal/notification/notificationtest"
 	"github.com/itswskkk/KMJG-Hub/server/internal/presence"
 	"github.com/itswskkk/KMJG-Hub/server/internal/profile"
 	"github.com/itswskkk/KMJG-Hub/server/internal/project"
@@ -141,9 +143,9 @@ func newTestRouterWithHandlers() (http.Handler, *httpapi.Handlers, *fakeProjectR
 	}
 	projectRepo := newFakeProjectRepo(users)
 	projectSvc := &project.Service{Repo: projectRepo}
-	invitationSvc := &invitation.Service{Repo: newFakeInvitationRepo(users, projectRepo)}
-
 	hub := realtime.NewHub(context.Background())
+	notificationSvc := &notification.Service{Repo: notificationtest.NewMemory(), Publisher: &notification.RealtimePublisher{Hub: hub}}
+	invitationSvc := &invitation.Service{Repo: newFakeInvitationRepo(users, projectRepo), Notifier: notificationSvc}
 	presenceSvc := &presence.Service{Membership: projectSvc, Hub: hub}
 	chatSvc := &chat.Service{Repo: newFakeChatRepo(users, projectRepo), Membership: projectSvc, Publisher: &chat.RealtimePublisher{Hub: hub}}
 	hub.OnUserOnline = presenceSvc.HandleUserOnline
@@ -154,11 +156,11 @@ func newTestRouterWithHandlers() (http.Handler, *httpapi.Handlers, *fakeProjectR
 	profileSvc := &profile.Service{Repo: profileRepo, Membership: profileMembership}
 
 	friendRepo := friendtest.NewMemory(fakeUserDirectory{users})
-	friendSvc := &friend.Service{Repo: friendRepo, Publisher: &friend.RealtimePublisher{Hub: hub}}
+	friendSvc := &friend.Service{Repo: friendRepo, Publisher: &friend.RealtimePublisher{Hub: hub}, Notifier: notificationSvc}
 
-	dmSvc := &directmessage.Service{Repo: newFakeDMRepo(users, projectRepo, friendRepo), Publisher: &directmessage.RealtimePublisher{Hub: hub}}
+	dmSvc := &directmessage.Service{Repo: newFakeDMRepo(users, projectRepo, friendRepo), Publisher: &directmessage.RealtimePublisher{Hub: hub}, Notifier: notificationSvc}
 
-	handlers := &httpapi.Handlers{Auth: authSvc, Projects: projectSvc, Invitations: invitationSvc, Chat: chatSvc, Profiles: profileSvc, Friends: friendSvc, DirectMessages: dmSvc, Realtime: hub, Presence: presenceSvc}
+	handlers := &httpapi.Handlers{Auth: authSvc, Projects: projectSvc, Invitations: invitationSvc, Chat: chatSvc, Profiles: profileSvc, Friends: friendSvc, DirectMessages: dmSvc, Notifications: notificationSvc, Realtime: hub, Presence: presenceSvc}
 	router := httpapi.NewRouter(handlers, []string{"http://localhost:1420"})
 	return router, handlers, projectRepo
 }

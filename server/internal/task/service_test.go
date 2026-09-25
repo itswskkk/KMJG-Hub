@@ -13,10 +13,14 @@ import (
 type fakeRepo struct {
 	createdTitle string
 	createErr    error
+	task         *task.Task // returned by Get when set
 }
 
 func (f *fakeRepo) List(context.Context, string, string) ([]task.Task, error) { return nil, nil }
 func (f *fakeRepo) Get(context.Context, string, string, string) (*task.Task, error) {
+	if f.task != nil {
+		return f.task, nil
+	}
 	return nil, task.ErrNotFound
 }
 func (f *fakeRepo) Create(_ context.Context, projectID, creatorID, title, description string, _ *time.Time) (*task.Task, error) {

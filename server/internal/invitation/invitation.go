@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -81,8 +82,26 @@ type Repository interface {
 }
 
 type Service struct {
-	Repo Repository
-	Now  func() time.Time
+	Repo     Repository
+	Now      func() time.Time
+	Notifier Notifier // optional; nil disables notifications
+}
+
+// Notifier creates persistent notifications. Satisfied by
+// *notification.Service; declared here so this package does not import it.
+type Notifier interface {
+	Notify(ctx context.Context, userID, eventType string, payload any) error
+}
+
+// notify creates a notification best-effort: failures are logged and never
+// fail the primary operation. A nil Notifier disables notifications.
+func (s *Service) notify(ctx context.Context, userID, eventType string, payload any) {
+	if s.Notifier == nil {
+		return
+	}
+	if err := s.Notifier.Notify(ctx, userID, eventType, payload); err != nil {
+		slog.Warn("invitation: create notification", "event_type", eventType, "error", err)
+	}
 }
 
 func (s *Service) now() time.Time {
@@ -113,7 +132,18 @@ func (s *Service) CreateDirect(ctx context.Context, projectID, inviterID, recipi
 	if recipient == "" {
 		return nil, ErrRecipientNotFound
 	}
-	return s.Repo.CreateDirect(ctx, projectID, inviterID, recipient, expiresAt)
+	item, err := s.Repo.CreateDirect(ctx, projectID, inviterID, recipient, expiresAt)
+	if err != nil {
+		return nil, err
+	}
+	s.notify(ctx, item.RecipientUserID, "project_invitation", map[string]any{
+		"project_id":       item.ProjectID,
+		"project_name":     item.ProjectName,
+		"invitation_id":    item.ID,
+		"inviter_id":       item.InviterUserID,
+		"inviter_username": item.InviterUsername,
+	})
+	return item, nil
 }
 
 func (s *Service) CreateCredential(ctx context.Context, projectID, creatorID, expiration string, maxUses *int) (*Credential, error) {

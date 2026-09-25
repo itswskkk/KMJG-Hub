@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -17,6 +18,30 @@ type Service struct {
 	Repo       Repository
 	Membership Membership
 	Publisher  Publisher
+	// Notifier is optional; nil disables notification creation. Creation is
+	// best-effort and never fails the primary task operation.
+	Notifier Notifier
+}
+
+// Notifier creates persistent notifications. Satisfied by
+// *notification.Service; declared here so task does not import it.
+type Notifier interface {
+	Notify(ctx context.Context, userID, eventType string, payload any) error
+}
+
+const (
+	notificationTaskAssigned = "task_assigned"
+	notificationTaskComment  = "task_comment"
+	commentPreviewCharacters = 100
+)
+
+func (s *Service) notify(ctx context.Context, userID, eventType string, payload any) {
+	if s.Notifier == nil {
+		return
+	}
+	if err := s.Notifier.Notify(ctx, userID, eventType, payload); err != nil {
+		slog.Warn("task: create notification", "event_type", eventType, "error", err)
+	}
 }
 
 func (s *Service) List(ctx context.Context, userID, projectID string) ([]Task, error) {
@@ -66,8 +91,23 @@ func (s *Service) Assign(ctx context.Context, userID, projectID, taskID, assigne
 	r, e := s.Repo.RequestAssignment(ctx, projectID, taskID, userID, assigneeID)
 	if e == nil {
 		s.publishChanged(ctx, projectID, taskID)
+		s.notifyAssignment(ctx, userID, projectID, taskID, assigneeID, r)
 	}
 	return nil, r, e
+}
+
+func (s *Service) notifyAssignment(ctx context.Context, userID, projectID, taskID, assigneeID string, r *AssignmentRequest) {
+	if r == nil {
+		return
+	}
+	s.notify(ctx, assigneeID, notificationTaskAssigned, map[string]any{
+		"project_id":            projectID,
+		"task_id":               taskID,
+		"task_title":            r.TaskTitle,
+		"assigned_by_user_id":   userID,
+		"assigned_by_username":  r.RequesterUsername,
+		"assignment_request_id": r.ID,
+	})
 }
 func (s *Service) RespondAssignment(ctx context.Context, userID, requestID string, accept bool) (*Task, error) {
 	t, err := s.Repo.RespondAssignment(ctx, requestID, userID, accept)
@@ -98,8 +138,52 @@ func (s *Service) AddComment(ctx context.Context, userID, projectID, taskID, bod
 	c, err := s.Repo.AddComment(ctx, projectID, taskID, userID, body)
 	if err == nil {
 		s.publishChanged(ctx, projectID, taskID)
+		s.notifyComment(ctx, userID, projectID, taskID, c)
 	}
 	return c, err
+}
+
+// notifyComment notifies the Task's creator and assignee (the users a Task
+// is "relevant" to, per docs/PRD.md "Notifications"), never the comment
+// author themselves.
+func (s *Service) notifyComment(ctx context.Context, authorID, projectID, taskID string, c *Comment) {
+	if s.Notifier == nil || c == nil {
+		return
+	}
+	t, err := s.Repo.Get(ctx, projectID, taskID, authorID)
+	if err != nil {
+		slog.Warn("task: load task for comment notification", "error", err)
+		return
+	}
+	recipients := []string{t.CreatorID}
+	if t.AssigneeID != nil {
+		recipients = append(recipients, *t.AssigneeID)
+	}
+	seen := map[string]bool{authorID: true}
+	for _, recipient := range recipients {
+		if recipient == "" || seen[recipient] {
+			continue
+		}
+		seen[recipient] = true
+		s.notify(ctx, recipient, notificationTaskComment, map[string]any{
+			"project_id":      projectID,
+			"task_id":         taskID,
+			"task_title":      t.Title,
+			"comment_id":      c.ID,
+			"author_id":       authorID,
+			"author_username": c.AuthorUsername,
+			"body_preview":    preview(c.Body, commentPreviewCharacters),
+		})
+	}
+}
+
+// preview truncates body to at most n runes.
+func preview(body string, n int) string {
+	runes := []rune(body)
+	if len(runes) <= n {
+		return body
+	}
+	return string(runes[:n])
 }
 
 func (s *Service) publishChanged(ctx context.Context, projectID, taskID string) {
