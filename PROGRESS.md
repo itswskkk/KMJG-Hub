@@ -1,3 +1,143 @@
+## Live Verification, Docs Audit, and Desktop Build (2026-09-26)
+
+This checkpoint did not add product features. It (1) proved the existing
+stack actually runs end-to-end outside the container smoke test, (2) read
+every file in `docs/` in full and cross-checked it against the real code to
+get an honest v1 completeness picture, and (3) produced and verified real
+installable desktop packages. No repository code changes were needed for any
+of this except new local-dev tooling (below).
+
+### End-to-end live run, no mocks
+
+Earlier in this session the app was briefly demoed against a throwaway
+Python mock API — that mock's response shapes did not match
+`client/src/lib/apiClient.ts` (e.g. login's `identifier` field, `{user,
+session}` response shape) and broke after Connect Server. That approach was
+abandoned. Replaced with the real stack:
+
+- Added `scripts/dev-up.sh` / `scripts/dev-down.sh` — committed in
+  `f19cea5`. Starts a private PostgreSQL under `.dev-data/` (gitignored, no
+  system Postgres or Docker needed), builds and runs the real Go server
+  against it, and starts the Vite dev client on port 1420 (matches
+  `tauri.conf.json`'s `devUrl`). Idempotent; safe to re-run. Fixed a real bug
+  caught only by testing the stop path: `npm run dev` forks a `vite` child
+  that a plain `kill` on the parent orphans holding the port — fixed with
+  `setsid` + process-group kill in `dev-down.sh`.
+- Verified live in the browser with real accounts (`alice` /
+  `password123`, seeded via the real HTTP API, not fixtures): Connect
+  Server → Login → Server Home (project list) → Overview (real presence:
+  "Members Online: 1 / 1") → Chat (real seeded message from Postgres) →
+  Tasks (real Kanban board, 3 seeded tasks). Screenshots saved during that
+  session to `/tmp/claude-chrome-screenshots-FcnFIK/`.
+
+### Desktop build (Tauri release bundles)
+
+`npm run tauri build` initially failed twice against the sandbox's system
+Rust (`rustc 1.75.0`, Ubuntu apt package): first on `Cargo.lock`'s `version =
+4` (needs cargo ≥1.78), then — after a lockfile regeneration attempt — on a
+transitive dependency requiring Rust edition 2024 (needs rustc ≥1.85). Fixed
+by installing a modern toolchain via `rustup` into `~/.cargo`
+(`--no-modify-path`, does not touch the system Rust or shell rc files).
+**Confirmed the committed `Cargo.lock` is fine as-is** — with the modern
+toolchain in `PATH`, the original unmodified lockfile builds cleanly
+end-to-end (verified with a second, independent full build). No lockfile
+change was committed.
+
+Produced and verified real artifacts at
+`client/src-tauri/target/release/bundle/`:
+- `deb/client_0.1.0_amd64.deb` (3.7 MB, depends on `libwebkit2gtk-4.1-0`,
+  `libgtk-3-0`)
+- `rpm/client-0.1.0-1.x86_64.rpm` (3.7 MB)
+- `appimage/client_0.1.0_amd64.AppImage` (81 MB, no install needed)
+
+The AppImage was actually launched (not just built): the process stayed
+alive, produced no error output, and `xwininfo` confirmed a real 800×600
+`"client"` window on the X display — matching `tauri.conf.json`'s configured
+window size. This is the first time in this project's history the desktop
+bundle has been built and run, not just `cargo check`ed.
+
+### Full docs-vs-code completeness audit
+
+Read `docs/VISION.md`, `docs/PRD.md`, `docs/UX.md`, `docs/ARCHITECTURE.md`
+in full (~5,000 lines total) and checked every documented v1 feature against
+the actual `server/internal/*` packages and `client/src/features/*`
+directories (not against this file's own claims). Verdict: **the
+implemented slice (Auth, Projects, Chat, Tasks, Presence, Work Context,
+Invitations) is genuinely solid and tests clean, but it is a subset of the
+PRD v1 scope — the "Server-level social" half of the product has not been
+started.**
+
+Implemented and verified against code (not just claimed):
+- Local auth (Argon2id), sessions, projects (create/list/detail), Project
+  Chat (messages, realtime, soft-delete + 30-day retention, attachments),
+  Tasks (Kanban, self/other assignment with accept/decline, current task,
+  comments) — `internal/task/service.go` has every method the PRD's Task
+  Management section describes.
+  Presence over authenticated WebSocket, Work Context (manual + Tauri
+  native Git branch detection), direct invitations + invite links/codes,
+  and **member removal — actually wired in `Members.tsx`**, correcting an
+  earlier "view-only" note further down this file.
+
+Documented in `docs/PRD.md` / `docs/UX.md` / `docs/ARCHITECTURE.md` but
+**no code exists for any of it** (verified by package/directory absence, not
+just missing UI):
+- GitHub OAuth login and GitHub repository integration (code comments say
+  this explicitly: "GitHub authentication is out of scope for this
+  checkpoint")
+- Friends, Friend Requests, Blocking — no `internal/friend` package
+- Direct Messages — no package, no client screen
+- Notifications (Server-level, persistent) — no package
+- User Profile beyond id/username/email — `internal/user/user.go`'s own
+  comment says "the broader profile model (avatar, bio, presence, etc.)
+  belongs to a later slice"; no field-level privacy
+- Direct File Transfer (peer-style accept/decline file send, distinct from
+  Project Chat attachments) — not implemented
+- Git activity feed / configurable push notifications — Overview/Members
+  still show literal "not implemented yet" text
+- Developer Tools launcher (Terminal / VS Code / etc. from the project
+  directory) — no Tauri command, no client screen at all
+- Project deletion + 30-day recovery, Ownership transfer, Promote/Demote
+  role — `project/service.go` only has `Create/List/GetDetail/RemoveMember`
+- Multi-server support (Saved Servers list, Server switcher) —
+  `ConnectServer.tsx` handles exactly one server, no saved-server list
+- Client-side offline cache of messages/tasks/projects and the offline
+  banner/sync UX — Client SQLite is currently used only for saved sessions
+  and repo-path mapping, not the general cache `docs/ARCHITECTURE.md`
+  describes
+- Backup automation / Server-side backup configuration
+
+### What "ready" means depends on the bar
+
+- Against the full `docs/PRD.md` v1 scope: **not ready** — roughly half the
+  documented v1 feature set (everything server-level/social) is unbuilt.
+- As a working "project chat + tasks + presence" tool for a small team using
+  the already-implemented slice: **ready** — proven end-to-end above with
+  real accounts, not just unit tests.
+
+### Next Steps
+
+1. **Treat `docs/PRD.md`, `docs/UX.md`, and `docs/ARCHITECTURE.md` as the
+   spec for all remaining work** — they are current and were re-read in
+   full this session; nothing in them was found stale or contradicted by
+   the codebase for the areas they cover. Do not re-derive product
+   decisions (roles, retention periods, privacy audiences, etc.) from
+   scratch — they're already fully specified there.
+2. Suggested build order for the unimplemented half, roughly by how much
+   other undone work depends on it: (a) User Profile (basic fields +
+   privacy, since Friends/DMs/Notifications all reference profile-visible
+   state), (b) Friends + Blocking, (c) Direct Messages, (d) Notifications,
+   (e) GitHub OAuth + repository integration, (f) Direct File Transfer,
+   (g) Developer Tools launcher, (h) Project deletion/recovery + ownership
+   transfer + role management, (i) Multi-server client support, (j)
+   client-side offline cache.
+3. Put the published Server behind trusted HTTPS before using it over a
+   network; configure allowed origins for the actual deployment.
+4. Commit and push this release-readiness checkpoint (`f19cea5` is local
+   only, matching this file's own note below about earlier local-only
+   commits).
+
+---
+
 ## Current Release Readiness (2026-09-25)
 
 The Tasks checkpoint is committed locally in `233bb00`. The current working
