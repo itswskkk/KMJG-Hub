@@ -12,6 +12,11 @@ import {
   updateProfile,
   updateProjectWorkContext,
   uploadProjectAttachment,
+  createFileTransferRequest,
+  listIncomingTransfers,
+  acceptTransfer,
+  downloadTransferFile,
+  ApiError,
 } from "./apiClient";
 
 afterEach(()=>vi.unstubAllGlobals());
@@ -97,5 +102,37 @@ describe("Friends API", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ user_id: "u2" });
     expect(fetchMock.mock.calls[1][0]).toBe("https://hub.test/api/v1/blocked/u2");
     expect(fetchMock.mock.calls[1][1].method).toBe("DELETE");
+  });
+});
+
+describe("Direct File Transfer API", () => {
+  it("sends only the file name and size in a transfer request", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ id: "t1", status: "pending" }, 201));
+    vi.stubGlobal("fetch", fetchMock);
+    await createFileTransferRequest("https://hub.test", "secret", "u2", new File(["hello"], "note.txt"));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://hub.test/api/v1/file-transfers");
+    expect(init.method).toBe("POST");
+    expect(init.headers.Authorization).toBe("Bearer secret");
+    expect(JSON.parse(init.body)).toEqual({ recipient_id: "u2", file_name: "note.txt", file_size: 5 });
+  });
+
+  it("normalizes a null transfer list and exposes the server limit", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ transfers: null, max_upload_bytes: 1024 })));
+    await expect(listIncomingTransfers("https://hub.test", "secret")).resolves.toEqual({ transfers: [], max_upload_bytes: 1024 });
+  });
+
+  it("posts accept to the transfer's action endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ id: "t 1", status: "accepted" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await acceptTransfer("https://hub.test", "secret", "t 1");
+    expect(fetchMock.mock.calls[0][0]).toBe("https://hub.test/api/v1/file-transfers/t%201/accept");
+    expect(fetchMock.mock.calls[0][1].method).toBe("POST");
+  });
+
+  it("surfaces a download error as an ApiError", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ error: { code: "invalid_state", message: "Not uploaded yet" } }, 409)));
+    const transfer = { id: "t1", file_name: "a.txt" } as Parameters<typeof downloadTransferFile>[2];
+    await expect(downloadTransferFile("https://hub.test", "secret", transfer)).rejects.toEqual(new ApiError(409, "invalid_state", "Not uploaded yet"));
   });
 });

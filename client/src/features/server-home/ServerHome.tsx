@@ -14,10 +14,11 @@ interface ServerHomeProps {
   onOpenFriends: () => void;
   onOpenMessages: () => void;
   onOpenNotifications: () => void;
+  onOpenFileTransfers: () => void;
   onSessionExpired: () => void;
 }
 
-function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject, onOpenProfile, onOpenFriends, onOpenMessages, onOpenNotifications, onSessionExpired }: ServerHomeProps) {
+function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject, onOpenProfile, onOpenFriends, onOpenMessages, onOpenNotifications, onOpenFileTransfers, onSessionExpired }: ServerHomeProps) {
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -131,6 +132,9 @@ function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject
           </button>
           <button type="button" onClick={onOpenFriends}>
             Friends
+          </button>
+          <button type="button" onClick={onOpenFileTransfers}>
+            Files
           </button>
           <button type="button" onClick={onOpenProfile}>
             Your Profile

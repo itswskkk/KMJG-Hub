@@ -3,6 +3,7 @@ import {
   ConnectionStatus,
   DirectMessageDeletedEvent,
   DirectMessageEvent,
+  FileTransferRealtimeEvent,
   FriendRealtimeEvent,
   NotificationCreatedEvent,
   PresenceSnapshotEvent,
@@ -35,6 +36,7 @@ interface PresenceState {
   friendEvents: FriendRealtimeEvent[];
   dmEvents: DMRealtimeEvent[];
   notificationEvents: NotificationCreatedEvent[];
+  fileTransferEvents: FileTransferRealtimeEvent[];
 }
 
 export type DMRealtimeEvent =
@@ -45,7 +47,7 @@ export type ChatRealtimeEvent =
   | { type: "created"; data: ProjectMessageEvent }
   | { type: "deleted"; data: ProjectMessageDeletedEvent };
 
-const initialState: PresenceState = { connectionStatus: "closed", projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [], friendEvents: [], dmEvents: [], notificationEvents: [] };
+const initialState: PresenceState = { connectionStatus: "closed", projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [], friendEvents: [], dmEvents: [], notificationEvents: [], fileTransferEvents: [] };
 
 const PresenceStateContext = createContext<PresenceState>(initialState);
 
@@ -94,7 +96,7 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
               // that next connection's own "connected" must not make this
               // stale (or, for a brand-new project, absent) data look
               // current again.
-              { connectionStatus, projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [], friendEvents: [], dmEvents: [], notificationEvents: [] },
+              { connectionStatus, projects: {}, readyProjects: {}, chatEvents: [], taskEvents: [], workContextEvents: [], friendEvents: [], dmEvents: [], notificationEvents: [], fileTransferEvents: [] },
         );
       },
       onSnapshot: (data: PresenceSnapshotEvent) => {
@@ -146,6 +148,9 @@ export function PresenceProvider({ serverUrl, token, onSessionExpired, children 
       onNotificationCreated: (data) => {
         setState((prev) => ({ ...prev, notificationEvents: [...prev.notificationEvents.slice(-99), data] }));
       },
+      onFileTransferEvent: (event) => {
+        setState((prev) => ({ ...prev, fileTransferEvents: [...prev.fileTransferEvents.slice(-99), event] }));
+      },
       onAuthError: () => {
         onSessionExpired?.();
       },
@@ -170,6 +175,13 @@ export function useDMEvents(): DMRealtimeEvent[] {
  * (and its unread_count) remains authoritative. */
 export function useNotificationEvents(): NotificationCreatedEvent[] {
   return useContext(PresenceStateContext).notificationEvents;
+}
+
+/** Returns the current connection generation's Direct File Transfer
+ * events. Each is only a reload hint; the HTTP transfer lists remain
+ * authoritative. */
+export function useFileTransferEvents(): FileTransferRealtimeEvent[] {
+  return useContext(PresenceStateContext).fileTransferEvents;
 }
 
 /** Returns the current connection generation's friend/block events. Each

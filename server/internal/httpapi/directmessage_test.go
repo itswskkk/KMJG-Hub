@@ -52,14 +52,22 @@ func (f *fakeDMRepo) shareProject(a, b string) bool {
 	return false
 }
 
+// permitted mirrors the SQL "permitted users" rule shared by Direct
+// Messages and Direct File Transfers: friends or a shared Project, and
+// neither user has blocked the other.
+func (f *fakeDMRepo) permitted(a, b string) bool {
+	ctx := context.Background()
+	areFriends, _ := f.friends.AreFriends(ctx, a, b)
+	b1, _ := f.friends.IsBlocked(ctx, a, b)
+	b2, _ := f.friends.IsBlocked(ctx, b, a)
+	return !b1 && !b2 && (areFriends || f.shareProject(a, b))
+}
+
 func (f *fakeDMRepo) Create(ctx context.Context, senderID, recipientID, body string) (*directmessage.Message, error) {
 	if !f.userExists(senderID) || !f.userExists(recipientID) {
 		return nil, directmessage.ErrNotFound
 	}
-	areFriends, _ := f.friends.AreFriends(ctx, senderID, recipientID)
-	b1, _ := f.friends.IsBlocked(ctx, senderID, recipientID)
-	b2, _ := f.friends.IsBlocked(ctx, recipientID, senderID)
-	if b1 || b2 || !(areFriends || f.shareProject(senderID, recipientID)) {
+	if !f.permitted(senderID, recipientID) {
 		return nil, directmessage.ErrForbidden
 	}
 	f.mu.Lock()

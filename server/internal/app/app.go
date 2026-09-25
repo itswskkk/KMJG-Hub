@@ -20,6 +20,7 @@ import (
 	"github.com/itswskkk/KMJG-Hub/server/internal/chat"
 	"github.com/itswskkk/KMJG-Hub/server/internal/config"
 	"github.com/itswskkk/KMJG-Hub/server/internal/directmessage"
+	"github.com/itswskkk/KMJG-Hub/server/internal/filetransfer"
 	"github.com/itswskkk/KMJG-Hub/server/internal/friend"
 	"github.com/itswskkk/KMJG-Hub/server/internal/github"
 	"github.com/itswskkk/KMJG-Hub/server/internal/httpapi"
@@ -143,6 +144,17 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Publisher: &directmessage.RealtimePublisher{Hub: hub},
 		Notifier:  notificationService,
 	}
+	// Direct File Transfers share the storage root with Project Chat
+	// attachments (random, prefixed IDs never collide) but only the per-file
+	// limit applies: they never count against Project storage quotas
+	// (docs/PRD.md "File and Storage Limits").
+	fileTransferService := &filetransfer.Service{
+		Repo:           postgres.NewFileTransferRepository(pool),
+		Storage:        fileStore,
+		Publisher:      &filetransfer.RealtimePublisher{Hub: hub},
+		Notifier:       notificationService,
+		MaxUploadBytes: cfg.MaxUploadBytes,
+	}
 	githubService, err := newGitHubService(cfg, pool, projectService, hub, notificationService)
 	if err != nil {
 		cancel()
@@ -163,6 +175,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Profiles:       profileService,
 		Friends:        friendService,
 		DirectMessages: directMessageService,
+		FileTransfers:  fileTransferService,
 		Notifications:  notificationService,
 		GitHub:         githubService,
 		Realtime:       hub,

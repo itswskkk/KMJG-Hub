@@ -1,0 +1,33 @@
+.file-transfers__status {
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.file-transfers__notice {
+  color: #2a8a4a;
+  font-size: 0.9rem;
+}
+
+.file-transfers__progress {
+  width: 8rem;
+}
+
+.file-transfers__choose {
+  cursor: pointer;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-weight: 500;
+  background-color: #ffffff;
+  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
+}
+
+@media (prefers-color-scheme: dark) {
+  .file-transfers__status {
+    color: #aaa;
+  }
+
+  .file-transfers__choose {
+    background-color: #0f0f0f98;
+  }
+}

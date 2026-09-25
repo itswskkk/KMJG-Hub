@@ -15,6 +15,8 @@ import (
 	"github.com/itswskkk/KMJG-Hub/server/internal/auth"
 	"github.com/itswskkk/KMJG-Hub/server/internal/chat"
 	"github.com/itswskkk/KMJG-Hub/server/internal/directmessage"
+	"github.com/itswskkk/KMJG-Hub/server/internal/filetransfer"
+	"github.com/itswskkk/KMJG-Hub/server/internal/filetransfer/filetransfertest"
 	"github.com/itswskkk/KMJG-Hub/server/internal/friend"
 	"github.com/itswskkk/KMJG-Hub/server/internal/friend/friendtest"
 	"github.com/itswskkk/KMJG-Hub/server/internal/github"
@@ -149,7 +151,13 @@ func newTestRouterWithHandlers() (http.Handler, *httpapi.Handlers, *fakeProjectR
 	notificationSvc := &notification.Service{Repo: notificationtest.NewMemory(), Publisher: &notification.RealtimePublisher{Hub: hub}}
 	invitationSvc := &invitation.Service{Repo: newFakeInvitationRepo(users, projectRepo), Notifier: notificationSvc}
 	presenceSvc := &presence.Service{Membership: projectSvc, Hub: hub}
-	chatSvc := &chat.Service{Repo: newFakeChatRepo(users, projectRepo), Membership: projectSvc, Publisher: &chat.RealtimePublisher{Hub: hub}}
+	// One in-memory store backs both Project Chat attachments and Direct
+	// File Transfers, mirroring app.New's shared storage root.
+	fileStore := filetransfertest.NewStore()
+	chatSvc := &chat.Service{
+		Repo: newFakeChatRepo(users, projectRepo), Membership: projectSvc, Publisher: &chat.RealtimePublisher{Hub: hub},
+		Storage: fileStore, MaxUploadBytes: testMaxUploadBytes, MaxProjectStorageBytes: testMaxProjectStorageBytes,
+	}
 	hub.OnUserOnline = presenceSvc.HandleUserOnline
 	hub.OnUserOffline = presenceSvc.HandleUserOffline
 
@@ -160,7 +168,23 @@ func newTestRouterWithHandlers() (http.Handler, *httpapi.Handlers, *fakeProjectR
 	friendRepo := friendtest.NewMemory(fakeUserDirectory{users})
 	friendSvc := &friend.Service{Repo: friendRepo, Publisher: &friend.RealtimePublisher{Hub: hub}, Notifier: notificationSvc}
 
-	dmSvc := &directmessage.Service{Repo: newFakeDMRepo(users, projectRepo, friendRepo), Publisher: &directmessage.RealtimePublisher{Hub: hub}, Notifier: notificationSvc}
+	dmRepo := newFakeDMRepo(users, projectRepo, friendRepo)
+	dmSvc := &directmessage.Service{Repo: dmRepo, Publisher: &directmessage.RealtimePublisher{Hub: hub}, Notifier: notificationSvc}
+
+	fileTransferSvc := &filetransfer.Service{
+		Repo: &filetransfertest.Memory{
+			Username: func(id string) (string, bool) {
+				u, err := users.GetByID(context.Background(), id)
+				if err != nil {
+					return "", false
+				}
+				return u.Username, true
+			},
+			Permitted: dmRepo.permitted,
+		},
+		Storage: fileStore, Publisher: &filetransfer.RealtimePublisher{Hub: hub}, Notifier: notificationSvc,
+		MaxUploadBytes: testMaxUploadBytes,
+	}
 
 	githubSvc := &github.Service{
 		Store: githubtest.NewMemory(), Client: githubtest.NewClient(testWebhookSecret),
@@ -169,7 +193,7 @@ func newTestRouterWithHandlers() (http.Handler, *httpapi.Handlers, *fakeProjectR
 		EncryptionKey: make([]byte, github.TokenKeySize),
 	}
 
-	handlers := &httpapi.Handlers{Auth: authSvc, Projects: projectSvc, Invitations: invitationSvc, Chat: chatSvc, Profiles: profileSvc, Friends: friendSvc, DirectMessages: dmSvc, Notifications: notificationSvc, GitHub: githubSvc, Realtime: hub, Presence: presenceSvc}
+	handlers := &httpapi.Handlers{Auth: authSvc, Projects: projectSvc, Invitations: invitationSvc, Chat: chatSvc, Profiles: profileSvc, Friends: friendSvc, DirectMessages: dmSvc, FileTransfers: fileTransferSvc, Notifications: notificationSvc, GitHub: githubSvc, Realtime: hub, Presence: presenceSvc}
 	router := httpapi.NewRouter(handlers, []string{"http://localhost:1420"})
 	return router, handlers, projectRepo
 }

@@ -1,11 +1,12 @@
 package httpapi_test
 
 import (
+	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -62,10 +63,49 @@ func (f *fakeChatRepo) ListPage(_ context.Context, projectID, viewerID string, _
 	}
 	return append([]chat.Message(nil), messages...), nil
 }
-func (f *fakeChatRepo) CreateWithAttachment(context.Context, string, string, string, chat.Attachment, int64) (*chat.Message, error) {
-	return nil, errors.New("not implemented")
+
+// CreateWithAttachment mirrors the SQL repository: members only, and the
+// Project's total active attachment bytes may not exceed maxProjectBytes.
+func (f *fakeChatRepo) CreateWithAttachment(_ context.Context, projectID, authorID, body string, attachment chat.Attachment, maxProjectBytes int64) (*chat.Message, error) {
+	if _, ok := f.role(projectID, authorID); !ok {
+		return nil, chat.ErrNotFound
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var used int64
+	for _, m := range f.messages[projectID] {
+		for _, a := range m.Attachments {
+			used += a.SizeBytes
+		}
+	}
+	if used+attachment.SizeBytes > maxProjectBytes {
+		return nil, chat.ErrStorageLimit
+	}
+	f.nextID++
+	messageID := fmt.Sprintf("message-%d", f.nextID)
+	attachment.ID = fmt.Sprintf("attachment-%d", f.nextID)
+	attachment.MessageID = messageID
+	attachment.ProjectID = projectID
+	message := chat.Message{ID: messageID, ProjectID: projectID, AuthorID: authorID, AuthorUsername: f.users.usernameFor(authorID), Body: body, CreatedAt: time.Now().UTC(), Attachments: []chat.Attachment{attachment}}
+	f.messages[projectID] = append(f.messages[projectID], message)
+	copy := message
+	return &copy, nil
 }
-func (f *fakeChatRepo) GetAttachment(context.Context, string, string, string) (*chat.Attachment, error) {
+
+func (f *fakeChatRepo) GetAttachment(_ context.Context, projectID, attachmentID, viewerID string) (*chat.Attachment, error) {
+	if _, ok := f.role(projectID, viewerID); !ok {
+		return nil, chat.ErrNotFound
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, m := range f.messages[projectID] {
+		for _, a := range m.Attachments {
+			if a.ID == attachmentID {
+				copy := a
+				return &copy, nil
+			}
+		}
+	}
 	return nil, chat.ErrNotFound
 }
 func (f *fakeChatRepo) ListExpiredAttachmentStorageIDs(context.Context, time.Time) ([]string, error) {
@@ -234,4 +274,54 @@ func currentUserID(t *testing.T, router http.Handler, token string) string {
 	}
 	decodeJSON(t, rec, &user)
 	return user.ID
+}
+
+// TestProjectChatAttachmentRoundTrip verifies the pre-existing Project Chat
+// attachment endpoints end to end: multipart upload, member-only download
+// with the original bytes and headers, the per-file limit, and the
+// per-Project storage quota.
+func TestProjectChatAttachmentRoundTrip(t *testing.T) {
+	router, _, projects := newTestRouterWithHandlers()
+	ownerToken := registerAndToken(t, router, "attach-owner")
+	memberToken := registerAndToken(t, router, "attach-member")
+	outsiderToken := registerAndToken(t, router, "attach-outsider")
+	created := doJSON(t, router, http.MethodPost, "/api/v1/projects", map[string]string{"name": "Attachments"}, ownerToken)
+	var p struct {
+		ID string `json:"id"`
+	}
+	decodeJSON(t, created, &p)
+	projects.addMember(p.ID, currentUserID(t, router, memberToken), project.RoleMember)
+	base := "/api/v1/projects/" + p.ID + "/chat/attachments"
+
+	content := []byte("attachment bytes")
+	rec := doMultipart(t, router, http.MethodPost, base, memberToken, "notes.txt", "text/plain", content, map[string]string{"body": "see attached"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("upload: %d %s", rec.Code, rec.Body.String())
+	}
+	var message struct {
+		Body        string            `json:"body"`
+		Attachments []chat.Attachment `json:"attachments"`
+	}
+	decodeJSON(t, rec, &message)
+	if message.Body != "see attached" || len(message.Attachments) != 1 || message.Attachments[0].Filename != "notes.txt" || message.Attachments[0].SizeBytes != int64(len(content)) {
+		t.Fatalf("uploaded message: %s", rec.Body.String())
+	}
+	download := base + "/" + message.Attachments[0].ID
+
+	expectStatus(t, doJSON(t, router, http.MethodGet, download, nil, outsiderToken), http.StatusNotFound, "outsider download")
+	expectStatus(t, doMultipart(t, router, http.MethodPost, base, outsiderToken, "x.txt", "", []byte("x"), nil), http.StatusNotFound, "outsider upload")
+	rec = doJSON(t, router, http.MethodGet, download, nil, ownerToken)
+	expectStatus(t, rec, http.StatusOK, "owner download")
+	if rec.Body.String() != string(content) || rec.Header().Get("Content-Disposition") != "attachment; filename=notes.txt" || rec.Header().Get("Content-Type") != "text/plain" {
+		t.Fatalf("download: %q headers=%v", rec.Body.String(), rec.Header())
+	}
+
+	// Per-file limit, then the per-Project quota (2 KiB with 1 KiB files).
+	expectStatus(t, doMultipart(t, router, http.MethodPost, base, memberToken, "big.bin", "", bytes.Repeat([]byte("x"), testMaxUploadBytes+1), nil), http.StatusBadRequest, "over per-file limit")
+	expectStatus(t, doMultipart(t, router, http.MethodPost, base, memberToken, "a.bin", "", bytes.Repeat([]byte("x"), testMaxUploadBytes), nil), http.StatusCreated, "first 1 KiB")
+	rec = doMultipart(t, router, http.MethodPost, base, memberToken, "b.bin", "", bytes.Repeat([]byte("x"), testMaxUploadBytes), nil)
+	expectStatus(t, rec, http.StatusRequestEntityTooLarge, "project quota")
+	if !strings.Contains(rec.Body.String(), "storage_limit") {
+		t.Fatalf("quota body: %s", rec.Body.String())
+	}
 }

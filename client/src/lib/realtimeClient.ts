@@ -101,6 +101,36 @@ export interface NotificationCreatedEvent {
   read_at: string | null;
 }
 
+export type FileTransferEventType =
+  | "file_transfer.requested"
+  | "file_transfer.responded"
+  | "file_transfer.cancelled"
+  | "file_transfer.uploaded";
+
+const FILE_TRANSFER_EVENT_TYPES: ReadonlySet<string> = new Set<FileTransferEventType>([
+  "file_transfer.requested",
+  "file_transfer.responded",
+  "file_transfer.cancelled",
+  "file_transfer.uploaded",
+]);
+
+/** A Direct File Transfer state change. Only a reload hint: the HTTP
+ * file-transfer lists stay authoritative. */
+export interface FileTransferRealtimeEvent {
+  type: FileTransferEventType;
+  data: {
+    id: string;
+    sender_id: string;
+    sender_username: string;
+    recipient_id: string;
+    recipient_username: string;
+    file_name: string;
+    file_size: number;
+    status: string;
+    created_at: string;
+  };
+}
+
 export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "closed";
 
 export interface RealtimeClientHandlers {
@@ -115,6 +145,7 @@ export interface RealtimeClientHandlers {
   onDirectMessageCreated?: (data: DirectMessageEvent) => void;
   onDirectMessageDeleted?: (data: DirectMessageDeletedEvent) => void;
   onNotificationCreated?: (data: NotificationCreatedEvent) => void;
+  onFileTransferEvent?: (event: FileTransferRealtimeEvent) => void;
   /** The Server rejected the session (invalid/expired/revoked) — the same
    * condition the Client already treats as a sign-out over HTTP
    * (apiClient's isSessionExpired). Reconnecting with the same token would
@@ -258,6 +289,11 @@ export class RealtimeClient {
           this.handlers.onFriendEvent?.({
             type: envelope.type as FriendEventType,
             data: (envelope.data ?? {}) as Record<string, unknown>,
+          });
+        } else if (FILE_TRANSFER_EVENT_TYPES.has(envelope.type)) {
+          this.handlers.onFileTransferEvent?.({
+            type: envelope.type as FileTransferEventType,
+            data: envelope.data as FileTransferRealtimeEvent["data"],
           });
         }
         break;

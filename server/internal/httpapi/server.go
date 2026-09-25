@@ -9,6 +9,7 @@ import (
 	"github.com/itswskkk/KMJG-Hub/server/internal/auth"
 	"github.com/itswskkk/KMJG-Hub/server/internal/chat"
 	"github.com/itswskkk/KMJG-Hub/server/internal/directmessage"
+	"github.com/itswskkk/KMJG-Hub/server/internal/filetransfer"
 	"github.com/itswskkk/KMJG-Hub/server/internal/friend"
 	"github.com/itswskkk/KMJG-Hub/server/internal/github"
 	"github.com/itswskkk/KMJG-Hub/server/internal/invitation"
@@ -34,6 +35,7 @@ type Handlers struct {
 	Profiles       *profile.Service
 	Friends        *friend.Service
 	DirectMessages *directmessage.Service
+	FileTransfers  *filetransfer.Service
 	Notifications  *notification.Service
 	GitHub         *github.Service
 	Realtime       *realtime.Hub
@@ -119,6 +121,15 @@ func NewRouter(h *Handlers, allowedOrigins []string) http.Handler {
 	mux.Handle("GET /api/v1/direct-messages/{user_id}", authed(http.HandlerFunc(h.handleListDMMessages)))
 	mux.Handle("POST /api/v1/direct-messages/{user_id}", authed(http.HandlerFunc(h.handleSendDM)))
 	mux.Handle("DELETE /api/v1/direct-messages/{id}", authed(http.HandlerFunc(h.handleDeleteDM)))
+
+	mux.Handle("POST /api/v1/file-transfers", authed(http.HandlerFunc(h.handleCreateFileTransfer)))
+	mux.Handle("GET /api/v1/file-transfers/incoming", authed(http.HandlerFunc(h.handleListIncomingFileTransfers)))
+	mux.Handle("GET /api/v1/file-transfers/sent", authed(http.HandlerFunc(h.handleListSentFileTransfers)))
+	mux.Handle("POST /api/v1/file-transfers/{id}/accept", authed(http.HandlerFunc(h.handleAcceptFileTransfer)))
+	mux.Handle("POST /api/v1/file-transfers/{id}/decline", authed(http.HandlerFunc(h.handleDeclineFileTransfer)))
+	mux.Handle("POST /api/v1/file-transfers/{id}/cancel", authed(http.HandlerFunc(h.handleCancelFileTransfer)))
+	mux.Handle("PUT /api/v1/file-transfers/{id}/upload", authed(http.HandlerFunc(h.handleUploadFileTransfer)))
+	mux.Handle("GET /api/v1/file-transfers/{id}/download", authed(http.HandlerFunc(h.handleDownloadFileTransfer)))
 
 	mux.Handle("GET /api/v1/notifications", authed(http.HandlerFunc(h.handleListNotifications)))
 	mux.Handle("POST /api/v1/notifications/{id}/read", authed(http.HandlerFunc(h.handleMarkNotificationRead)))

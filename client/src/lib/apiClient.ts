@@ -661,6 +661,134 @@ export function deleteDM(serverUrl: string, token: string, messageId: string): P
   return request<void>(serverUrl, `/api/v1/direct-messages/${encodeURIComponent(messageId)}`, { method: "DELETE", headers: authHeaders(token) });
 }
 
+// --- Direct File Transfer (docs/PRD.md "File Sharing and Transfer") ---
+
+export type FileTransferStatus = "pending" | "accepted" | "declined" | "uploaded" | "cancelled" | "expired";
+
+/** One Direct File Transfer. The sender requests; the recipient must accept
+ * before any bytes are uploaded; the sender then uploads; the recipient
+ * downloads. */
+export interface FileTransfer {
+  id: string;
+  sender_id: string;
+  sender_username: string;
+  recipient_id: string;
+  recipient_username: string;
+  file_name: string;
+  file_size: number;
+  status: FileTransferStatus;
+  content_type: string | null;
+  created_at: string;
+  responded_at: string | null;
+  uploaded_at: string | null;
+}
+
+export interface FileTransferList {
+  transfers: FileTransfer[];
+  /** The Server's configured per-file limit, so the Client can warn early. */
+  max_upload_bytes: number;
+}
+
+export function createFileTransferRequest(serverUrl: string, token: string, recipientId: string, file: { name: string; size: number }): Promise<FileTransfer> {
+  return request<FileTransfer>(serverUrl, "/api/v1/file-transfers", {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ recipient_id: recipientId, file_name: file.name, file_size: file.size }),
+  });
+}
+
+async function listTransfers(serverUrl: string, token: string, which: "incoming" | "sent"): Promise<FileTransferList> {
+  const body = await request<{ transfers: FileTransfer[] | null; max_upload_bytes?: number }>(serverUrl, `/api/v1/file-transfers/${which}`, { headers: authHeaders(token) });
+  return { transfers: body.transfers ?? [], max_upload_bytes: body.max_upload_bytes ?? 0 };
+}
+
+export function listIncomingTransfers(serverUrl: string, token: string): Promise<FileTransferList> {
+  return listTransfers(serverUrl, token, "incoming");
+}
+
+export function listSentTransfers(serverUrl: string, token: string): Promise<FileTransferList> {
+  return listTransfers(serverUrl, token, "sent");
+}
+
+function transferAction(serverUrl: string, token: string, transferId: string, action: "accept" | "decline" | "cancel"): Promise<FileTransfer> {
+  return request<FileTransfer>(serverUrl, `/api/v1/file-transfers/${encodeURIComponent(transferId)}/${action}`, { method: "POST", headers: authHeaders(token) });
+}
+
+export function acceptTransfer(serverUrl: string, token: string, transferId: string): Promise<FileTransfer> {
+  return transferAction(serverUrl, token, transferId, "accept");
+}
+
+export function declineTransfer(serverUrl: string, token: string, transferId: string): Promise<FileTransfer> {
+  return transferAction(serverUrl, token, transferId, "decline");
+}
+
+export function cancelTransfer(serverUrl: string, token: string, transferId: string): Promise<FileTransfer> {
+  return transferAction(serverUrl, token, transferId, "cancel");
+}
+
+/** Uploads an accepted transfer's file as multipart/form-data. Uses
+ * XMLHttpRequest because fetch cannot report upload progress. Aborting
+ * `signal` stops the upload (the Server stores nothing for an incomplete
+ * upload) and rejects with an ApiError of code "aborted". */
+export function uploadTransferFile(
+  serverUrl: string,
+  token: string,
+  transferId: string,
+  file: File,
+  onProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
+): Promise<FileTransfer> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", new URL(`/api/v1/file-transfers/${encodeURIComponent(transferId)}/upload`, serverUrl).toString());
+    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) onProgress(event.loaded / event.total);
+    };
+    xhr.onload = () => {
+      let body: unknown;
+      try { body = JSON.parse(xhr.responseText); } catch { body = undefined; }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(body as FileTransfer);
+        return;
+      }
+      const detail = (body as ErrorResponseBody | undefined)?.error;
+      reject(new ApiError(xhr.status, detail?.code ?? "unknown_error", detail?.message ?? `Upload failed with status ${xhr.status}`, detail?.field));
+    };
+    xhr.onerror = () => reject(new ApiError(0, "network_error", "The upload was interrupted. Check your connection and try again."));
+    xhr.onabort = () => reject(new ApiError(0, "aborted", "The upload was cancelled."));
+    if (signal) {
+      if (signal.aborted) { reject(new ApiError(0, "aborted", "The upload was cancelled.")); return; }
+      signal.addEventListener("abort", () => xhr.abort(), { once: true });
+    }
+    const form = new FormData();
+    form.append("file", file);
+    xhr.send(form);
+  });
+}
+
+/** Downloads an uploaded transfer and hands it to the browser as a file
+ * save. Only the recipient may download. */
+export async function downloadTransferFile(serverUrl: string, token: string, transfer: FileTransfer): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(new URL(`/api/v1/file-transfers/${encodeURIComponent(transfer.id)}/download`, serverUrl), { headers: authHeaders(token) });
+  } catch {
+    throw new ApiError(0, "network_error", "Could not reach the server. Check the server address and your connection.");
+  }
+  if (!response.ok) {
+    let detail: ErrorResponseBody["error"] | undefined;
+    try { detail = ((await response.json()) as ErrorResponseBody).error; } catch { detail = undefined; }
+    throw new ApiError(response.status, detail?.code ?? "unknown_error", detail?.message ?? `Download failed with status ${response.status}`, detail?.field);
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = transfer.file_name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 /** Kind of collaboration event a Notification is about
  * (docs/PRD.md § Notifications). */
 export type NotificationEventType =

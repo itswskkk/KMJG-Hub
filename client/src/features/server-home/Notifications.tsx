@@ -17,6 +17,7 @@ interface NotificationsProps {
   onOpenProject: (projectId: string) => void;
   onOpenFriends: () => void;
   onOpenMessages: () => void;
+  onOpenFileTransfers: () => void;
   onSessionExpired: () => void;
 }
 
@@ -41,7 +42,7 @@ export function describeNotification(n: Notification): string {
     case "project_invitation":
       return `${text(p, "inviter_username") || "Someone"} invited you to the Project “${text(p, "project_name")}”`;
     case "file_transfer_request":
-      return "You have a new file transfer request";
+      return `${text(p, "sender_username") || "Someone"} wants to send you “${text(p, "file_name")}”`;
     case "role_changed":
       return "Your Project role was changed";
     case "git_push":
@@ -51,7 +52,7 @@ export function describeNotification(n: Notification): string {
   }
 }
 
-function Notifications({ serverUrl, token, onBack, onOpenProject, onOpenFriends, onOpenMessages, onSessionExpired }: NotificationsProps) {
+function Notifications({ serverUrl, token, onBack, onOpenProject, onOpenFriends, onOpenMessages, onOpenFileTransfers, onSessionExpired }: NotificationsProps) {
   const [items, setItems] = useState<Notification[] | null>(null);
   const [nextCursor, setNextCursor] = useState("");
   const [unreadCount, setUnreadCount] = useState(0);
@@ -145,6 +146,8 @@ function Notifications({ serverUrl, token, onBack, onOpenProject, onOpenFriends,
         return onOpenMessages;
       case "friend_request":
         return onOpenFriends;
+      case "file_transfer_request":
+        return onOpenFileTransfers;
       case "project_invitation":
         // Pending invitations are accepted from Server Home.
         return onBack;

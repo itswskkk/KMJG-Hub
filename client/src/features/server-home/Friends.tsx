@@ -18,6 +18,7 @@ import {
 } from "../../lib/apiClient";
 import { useFriendEvents } from "../presence/PresenceProvider";
 import FriendRequests from "./FriendRequests";
+import SendFileButton from "./SendFileButton";
 import "./ServerHome.css";
 import "./Friends.css";
 
@@ -154,6 +155,15 @@ function Friends({ serverUrl, token, onBack, onSessionExpired }: FriendsProps) {
                   <p className="server-home__project-meta">Friends since {new Date(friend.since).toLocaleDateString()}</p>
                 </div>
                 <div className="server-home__actions">
+                  <SendFileButton
+                    serverUrl={serverUrl}
+                    token={token}
+                    recipientId={friend.user_id}
+                    recipientUsername={friend.username}
+                    onSent={(message) => { setError(null); setNotice(message); }}
+                    onError={(message) => { setNotice(null); setError(message); }}
+                    onSessionExpired={onSessionExpired}
+                  />
                   <button type="button" className="friends__link" onClick={() => handleBlock(friend.user_id, friend.username)}>Block</button>
                   <button type="button" onClick={() => handleRemove(friend)}>Remove</button>
                 </div>

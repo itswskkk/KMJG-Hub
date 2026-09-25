@@ -7,6 +7,7 @@ import Profile from "./features/server-home/Profile";
 import Friends from "./features/server-home/Friends";
 import DirectMessages from "./features/server-home/DirectMessages";
 import Notifications from "./features/server-home/Notifications";
+import FileTransfers from "./features/server-home/FileTransfers";
 import CreateProject from "./features/projects/CreateProject";
 import ProjectWorkspace from "./features/projects/ProjectWorkspace";
 import { PresenceProvider } from "./features/presence/PresenceProvider";
@@ -27,6 +28,7 @@ type Screen =
   | { kind: "friends"; serverUrl: string; auth: AuthResponse }
   | { kind: "direct-messages"; serverUrl: string; auth: AuthResponse }
   | { kind: "notifications"; serverUrl: string; auth: AuthResponse }
+  | { kind: "file-transfers"; serverUrl: string; auth: AuthResponse }
   | { kind: "project"; serverUrl: string; auth: AuthResponse; projectId: string };
 
 function App() {
@@ -135,6 +137,7 @@ function App() {
           onOpenFriends={() => setScreen({ kind: "friends", serverUrl, auth })}
           onOpenMessages={() => setScreen({ kind: "direct-messages", serverUrl, auth })}
           onOpenNotifications={() => setScreen({ kind: "notifications", serverUrl, auth })}
+          onOpenFileTransfers={() => setScreen({ kind: "file-transfers", serverUrl, auth })}
 		  onSessionExpired={() => sessionInvalid(serverUrl)}
         />
       );
@@ -191,6 +194,20 @@ function App() {
           onOpenProject={(projectId) => setScreen({ kind: "project", serverUrl, auth, projectId })}
           onOpenFriends={() => setScreen({ kind: "friends", serverUrl, auth })}
           onOpenMessages={() => setScreen({ kind: "direct-messages", serverUrl, auth })}
+          onOpenFileTransfers={() => setScreen({ kind: "file-transfers", serverUrl, auth })}
+          onSessionExpired={() => sessionInvalid(serverUrl)}
+        />
+      );
+      break;
+    }
+
+    case "file-transfers": {
+      const { serverUrl, auth } = screen;
+      content = (
+        <FileTransfers
+          serverUrl={serverUrl}
+          token={auth.session.token}
+          onBack={() => setScreen({ kind: "server-home", serverUrl, auth })}
           onSessionExpired={() => sessionInvalid(serverUrl)}
         />
       );
