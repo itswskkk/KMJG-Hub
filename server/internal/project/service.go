@@ -2,12 +2,32 @@ package project
 
 import (
 	"context"
+	"errors"
 	"strings"
+	"time"
+
+	"github.com/itswskkk/KMJG-Hub/server/internal/storage"
 )
 
-// Service implements Project creation and retrieval.
+// Service implements Project creation, retrieval and lifecycle.
 type Service struct {
 	Repo Repository
+
+	// Lifecycle backs TransferOwnership, UpdateMemberRole, Leave, Delete,
+	// Restore, ListDeleted and PurgeExpiredDeleted. It is separate from
+	// Repo (see LifecycleRepository); callers that only need creation and
+	// retrieval may leave it nil.
+	Lifecycle LifecycleRepository
+
+	// Storage, when set, lets PurgeExpiredDeleted remove the stored files
+	// of purged Projects' chat attachments.
+	Storage ObjectDeleter
+}
+
+// ObjectDeleter is the narrow slice of internal/storage.Store that the
+// retention sweep needs.
+type ObjectDeleter interface {
+	Delete(ctx context.Context, id string) error
 }
 
 // CreateInput carries the minimum information required to create a
@@ -113,4 +133,118 @@ func (s *Service) ProjectIDsForUser(ctx context.Context, userID string) ([]strin
 // Satisfies internal/presence.ProjectMembership.
 func (s *Service) MemberUserIDs(ctx context.Context, projectID string) ([]string, error) {
 	return s.Repo.ListMemberUserIDs(ctx, projectID)
+}
+
+// TransferOwnership makes newOwnerID the Owner of projectID. userID must be
+// the current Owner and keeps membership with previousOwnerRole (Admin or
+// Member), per docs/PRD.md "Ownership Transfer".
+func (s *Service) TransferOwnership(ctx context.Context, userID, projectID, newOwnerID string, previousOwnerRole Role) error {
+	if err := validateNonOwnerRole("previous_owner_role", previousOwnerRole); err != nil {
+		return err
+	}
+	if userID == newOwnerID {
+		return ErrCannotTransferToSelf
+	}
+	detail, err := s.Repo.GetDetailForUser(ctx, projectID, userID)
+	if err != nil {
+		return err
+	}
+	if detail.ViewerRole != RoleOwner {
+		return ErrNotOwner
+	}
+	if _, ok := findMember(detail, newOwnerID); !ok {
+		return ErrNotFound
+	}
+	return s.Lifecycle.TransferOwnership(ctx, projectID, userID, newOwnerID, previousOwnerRole)
+}
+
+// UpdateMemberRole promotes a Member to Admin or demotes an Admin to
+// Member. docs/PRD.md "Roles and Permissions" grants this only to the
+// Owner; the Owner's own role changes only through TransferOwnership.
+func (s *Service) UpdateMemberRole(ctx context.Context, userID, projectID, targetUserID string, newRole Role) error {
+	if err := validateNonOwnerRole("role", newRole); err != nil {
+		return err
+	}
+	detail, err := s.Repo.GetDetailForUser(ctx, projectID, userID)
+	if err != nil {
+		return err
+	}
+	if detail.ViewerRole != RoleOwner {
+		return ErrNotOwner
+	}
+	target, ok := findMember(detail, targetUserID)
+	if !ok {
+		return ErrNotFound
+	}
+	if target.Role == RoleOwner {
+		return ErrCannotDemoteOwner
+	}
+	return s.Lifecycle.UpdateMemberRole(ctx, projectID, userID, targetUserID, newRole)
+}
+
+// Leave removes userID from projectID. Members and Admins may leave; the
+// Owner gets ErrOwnerCannotLeave until ownership has been transferred.
+func (s *Service) Leave(ctx context.Context, userID, projectID string) error {
+	return s.Lifecycle.Leave(ctx, projectID, userID)
+}
+
+// Delete soft-deletes projectID. Only the Owner may delete a Project.
+func (s *Service) Delete(ctx context.Context, userID, projectID string) error {
+	detail, err := s.Repo.GetDetailForUser(ctx, projectID, userID)
+	if err != nil {
+		return err
+	}
+	if detail.ViewerRole != RoleOwner {
+		return ErrNotOwner
+	}
+	return s.Lifecycle.Delete(ctx, projectID, userID)
+}
+
+// Restore restores a soft-deleted Project for the Owner who deleted it,
+// within RestoreWindow.
+func (s *Service) Restore(ctx context.Context, userID, projectID string) error {
+	return s.Lifecycle.Restore(ctx, projectID, userID)
+}
+
+// ListDeleted returns userID's restorable deleted Projects.
+func (s *Service) ListDeleted(ctx context.Context, userID string) ([]DeletedSummary, error) {
+	return s.Lifecycle.ListDeleted(ctx, userID)
+}
+
+// PurgeExpiredDeleted permanently deletes Projects whose RestoreWindow
+// ended before now, along with their stored chat attachment files. The
+// database rows go first: a file left behind by a failed file delete is
+// unreachable, whereas deleting files first could break a Project whose
+// row delete then failed.
+func (s *Service) PurgeExpiredDeleted(ctx context.Context, now time.Time) error {
+	storageIDs, err := s.Lifecycle.PurgeDeletedBefore(ctx, now.Add(-RestoreWindow))
+	if err != nil {
+		return err
+	}
+	if s.Storage == nil {
+		return nil
+	}
+	var errs []error
+	for _, id := range storageIDs {
+		if err := s.Storage.Delete(ctx, id); err != nil && !errors.Is(err, storage.ErrNotFound) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func findMember(detail *Detail, userID string) (Member, bool) {
+	for _, m := range detail.Members {
+		if m.UserID == userID {
+			return m, true
+		}
+	}
+	return Member{}, false
+}
+
+func validateNonOwnerRole(field string, role Role) error {
+	if role != RoleAdmin && role != RoleMember {
+		return &ValidationError{Field: field, Message: "must be admin or member"}
+	}
+	return nil
 }

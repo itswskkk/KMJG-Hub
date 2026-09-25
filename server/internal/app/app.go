@@ -96,8 +96,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		SessionTTL: cfg.SessionTTL,
 	}
 
+	// ProjectRepository implements both project.Repository and
+	// project.LifecycleRepository.
+	projectRepo := postgres.NewProjectRepository(pool)
 	projectService := &project.Service{
-		Repo: postgres.NewProjectRepository(pool),
+		Repo:      projectRepo,
+		Lifecycle: projectRepo,
+		Storage:   fileStore,
 	}
 
 	// appCtx is App's own child of ctx: it lets Close stop App's background
@@ -185,7 +190,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	router := httpapi.NewRouter(handlers, cfg.AllowedOrigins)
 
 	a := &App{Pool: pool, Router: router, Realtime: hub, Storage: fileStore, cancel: cancel}
-	a.wg.Add(3)
+	a.wg.Add(4)
 	go func() {
 		defer a.wg.Done()
 		runSessionSweep(appCtx, hub, authService)
@@ -197,6 +202,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	go func() {
 		defer a.wg.Done()
 		runRetentionSweep(appCtx, "Direct Messages", directMessageService.PurgeExpiredDeleted)
+	}()
+	go func() {
+		defer a.wg.Done()
+		runRetentionSweep(appCtx, "Projects", projectService.PurgeExpiredDeleted)
 	}()
 
 	return a, nil
@@ -238,7 +247,7 @@ func newGitHubService(cfg config.Config, pool *pgxpool.Pool, projects *project.S
 	return svc, nil
 }
 
-// runRetentionSweep permanently purges soft-deleted messages past their
+// runRetentionSweep permanently purges soft-deleted data (messages, Projects) past their
 // 30-day retention window, once at startup and then hourly, until ctx ends.
 func runRetentionSweep(ctx context.Context, what string, purge func(context.Context, time.Time) error) {
 	cleanup := func() {

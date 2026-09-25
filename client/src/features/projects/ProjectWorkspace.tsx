@@ -68,6 +68,20 @@ function ProjectWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverUrl, token, projectId]);
 
+  // Role changes and ownership transfer change Project detail (including
+  // the viewer's own role), so reload it from the Server afterwards.
+  function reloadDetail() {
+    getProject(serverUrl, token, projectId)
+      .then(setDetail)
+      .catch((err) => {
+        if (isSessionExpired(err)) {
+          onSessionExpired();
+          return;
+        }
+        setError(err instanceof ApiError ? err.message : "Could not load this project.");
+      });
+  }
+
   // Current Task is part of Project detail. A task event is only a hint;
   // reload the detail so Overview and Members reflect Server state.
   useEffect(() => {
@@ -158,7 +172,7 @@ function ProjectWorkspace({
           </p>
         )}
         {!error && !detail && <p className="project-workspace__loading">Loading project...</p>}
-        {detail && section === "overview" && <Overview detail={detail} serverUrl={serverUrl} token={token} onViewMembers={() => setSection("members")} onSessionExpired={onSessionExpired} />}
+        {detail && section === "overview" && <Overview detail={detail} serverUrl={serverUrl} token={token} onViewMembers={() => setSection("members")} onSessionExpired={onSessionExpired} onProjectClosed={onBackToServerHome} />}
         {detail && section === "chat" && (
           <ProjectChat detail={detail} serverUrl={serverUrl} token={token} viewerUserId={viewerUserId} onSessionExpired={onSessionExpired} />
         )}
@@ -170,6 +184,8 @@ function ProjectWorkspace({
             serverUrl={serverUrl}
             token={token}
             viewerUserId={viewerUserId}
+            onMembershipChanged={reloadDetail}
+            onSessionExpired={onSessionExpired}
             onMemberRemoved={(userId) => {
               setDetail((current) =>
                 current ? { ...current, members: current.members.filter((member) => member.id !== userId) } : current,

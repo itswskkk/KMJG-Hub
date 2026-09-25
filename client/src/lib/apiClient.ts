@@ -377,6 +377,72 @@ export function removeProjectMember(
   );
 }
 
+/** A soft-deleted Project in the "Recently Deleted Projects" recovery area. */
+export interface DeletedProject {
+  id: string;
+  name: string;
+  description: string;
+  created_at: string;
+  member_count: number;
+  deleted_at: string;
+  restore_deadline: string;
+}
+
+function projectPath(projectId: string, suffix = ""): string {
+  return `/api/v1/projects/${encodeURIComponent(projectId)}${suffix}`;
+}
+
+/** Owner-only: makes newOwnerId the Owner; the caller keeps previousOwnerRole. */
+export function transferOwnership(
+  serverUrl: string,
+  token: string,
+  projectId: string,
+  newOwnerId: string,
+  previousOwnerRole: "admin" | "member",
+): Promise<void> {
+  return request<void>(serverUrl, projectPath(projectId, "/transfer-ownership"), {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ new_owner_id: newOwnerId, previous_owner_role: previousOwnerRole }),
+  });
+}
+
+/** Owner-only: promotes a Member to Admin or demotes an Admin to Member. */
+export function updateMemberRole(
+  serverUrl: string,
+  token: string,
+  projectId: string,
+  userId: string,
+  role: "admin" | "member",
+): Promise<void> {
+  return request<void>(serverUrl, projectPath(projectId, `/members/${encodeURIComponent(userId)}/role`), {
+    method: "PUT",
+    headers: authHeaders(token),
+    body: JSON.stringify({ role }),
+  });
+}
+
+/** Leaves a Project. The Owner must transfer ownership first. */
+export function leaveProject(serverUrl: string, token: string, projectId: string): Promise<void> {
+  return request<void>(serverUrl, projectPath(projectId, "/leave"), { method: "POST", headers: authHeaders(token) });
+}
+
+/** Owner-only soft delete; restorable by the same user for 30 days. */
+export function deleteProject(serverUrl: string, token: string, projectId: string): Promise<void> {
+  return request<void>(serverUrl, projectPath(projectId), { method: "DELETE", headers: authHeaders(token) });
+}
+
+export async function listDeletedProjects(serverUrl: string, token: string): Promise<DeletedProject[]> {
+  const body = await request<{ projects: DeletedProject[] | null }>(serverUrl, "/api/v1/projects/deleted", {
+    headers: authHeaders(token),
+  });
+  return body.projects ?? [];
+}
+
+export function restoreProject(serverUrl: string, token: string, projectId: string): Promise<void> {
+  return request<void>(serverUrl, projectPath(projectId, "/restore"), { method: "POST", headers: authHeaders(token) });
+}
+
 export function createDirectInvitation(serverUrl: string, token: string, projectId: string, recipient: string, expiresIn: string): Promise<DirectInvitation> {
   return request(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/invitations`, { method: "POST", headers: authHeaders(token), body: JSON.stringify({ recipient, expires_in: expiresIn }) });
 }

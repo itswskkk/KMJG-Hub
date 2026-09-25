@@ -49,3 +49,46 @@
   font-size: 0.875rem;
   margin: 0.35rem 0 0;
 }
+
+.overview__danger-zone {
+  border-top: 1px solid rgba(180, 35, 24, 0.4);
+  padding-top: 1rem;
+}
+
+.overview__danger-zone > button + button {
+  margin-left: 0.5rem;
+}
+
+.overview__danger-button {
+  background: #b42318;
+  color: #fff;
+}
+
+.overview__confirm {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.overview__confirm h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.overview__confirm p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.overview__confirm label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+}
+
+.overview__error {
+  color: #b42318;
+}

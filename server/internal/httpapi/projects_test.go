@@ -28,6 +28,9 @@ type fakeProjectRepo struct {
 	projects map[string]*project.Project
 	members  map[string][]membership // projectID -> members, in join order
 	users    usernameLookup
+
+	// deleted holds soft-deleted projects (see project_lifecycle_test.go).
+	deleted map[string]*fakeDeletedProject
 }
 
 type membership struct {

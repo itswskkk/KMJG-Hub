@@ -142,11 +142,124 @@ func (h *Handlers) handleRemoveProjectMember(w http.ResponseWriter, r *http.Requ
 	}
 }
 
+type transferOwnershipRequest struct {
+	NewOwnerID        string `json:"new_owner_id"`
+	PreviousOwnerRole string `json:"previous_owner_role"`
+}
+
+func (h *Handlers) handleTransferProjectOwnership(w http.ResponseWriter, r *http.Request) {
+	authed := currentAuth(r)
+	var req transferOwnershipRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", "Request body must be valid JSON matching the expected fields")
+		return
+	}
+	err := h.Projects.TransferOwnership(r.Context(), authed.User.ID, r.PathValue("id"), req.NewOwnerID, project.Role(req.PreviousOwnerRole))
+	if err != nil {
+		writeProjectError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type updateMemberRoleRequest struct {
+	Role string `json:"role"`
+}
+
+func (h *Handlers) handleUpdateProjectMemberRole(w http.ResponseWriter, r *http.Request) {
+	authed := currentAuth(r)
+	var req updateMemberRoleRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", "Request body must be valid JSON matching the expected fields")
+		return
+	}
+	err := h.Projects.UpdateMemberRole(r.Context(), authed.User.ID, r.PathValue("id"), r.PathValue("userID"), project.Role(req.Role))
+	if err != nil {
+		writeProjectError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handlers) handleLeaveProject(w http.ResponseWriter, r *http.Request) {
+	authed := currentAuth(r)
+	if err := h.Projects.Leave(r.Context(), authed.User.ID, r.PathValue("id")); err != nil {
+		writeProjectError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handlers) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
+	authed := currentAuth(r)
+	if err := h.Projects.Delete(r.Context(), authed.User.ID, r.PathValue("id")); err != nil {
+		writeProjectError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handlers) handleRestoreProject(w http.ResponseWriter, r *http.Request) {
+	authed := currentAuth(r)
+	if err := h.Projects.Restore(r.Context(), authed.User.ID, r.PathValue("id")); err != nil {
+		writeProjectError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type deletedProjectDTO struct {
+	projectDTO
+	MemberCount     int       `json:"member_count"`
+	DeletedAt       time.Time `json:"deleted_at"`
+	RestoreDeadline time.Time `json:"restore_deadline"`
+}
+
+func toDeletedProjectDTO(d project.DeletedSummary) deletedProjectDTO {
+	return deletedProjectDTO{
+		projectDTO:      toProjectDTO(d.Project),
+		MemberCount:     d.MemberCount,
+		DeletedAt:       d.DeletedAt,
+		RestoreDeadline: d.RestoreDeadline,
+	}
+}
+
+func (h *Handlers) handleListDeletedProjects(w http.ResponseWriter, r *http.Request) {
+	authed := currentAuth(r)
+	deleted, err := h.Projects.ListDeleted(r.Context(), authed.User.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to list deleted projects")
+		return
+	}
+	dtos := make([]deletedProjectDTO, len(deleted))
+	for i, d := range deleted {
+		dtos[i] = toDeletedProjectDTO(d)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"projects": dtos})
+}
+
 func writeProjectError(w http.ResponseWriter, err error) {
 	var validationErr *project.ValidationError
 	if errors.As(err, &validationErr) {
 		writeFieldError(w, http.StatusBadRequest, "validation_error", validationErr.Message, validationErr.Field)
 		return
 	}
-	writeError(w, http.StatusInternalServerError, "internal_error", "Something went wrong, please try again")
+	switch {
+	case errors.Is(err, project.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "Project or member not found")
+	case errors.Is(err, project.ErrNotOwner):
+		writeError(w, http.StatusForbidden, "not_owner", "Only the project owner can do this")
+	case errors.Is(err, project.ErrOwnerCannotLeave):
+		writeError(w, http.StatusConflict, "owner_cannot_leave", "Transfer ownership to another member before leaving the project")
+	case errors.Is(err, project.ErrForbidden):
+		writeError(w, http.StatusForbidden, "forbidden", "You do not have permission to do this")
+	case errors.Is(err, project.ErrCannotTransferToSelf):
+		writeError(w, http.StatusBadRequest, "cannot_transfer_to_self", "Choose another member to become the owner")
+	case errors.Is(err, project.ErrCannotDemoteOwner):
+		writeError(w, http.StatusConflict, "cannot_change_owner_role", "The owner's role changes only through ownership transfer")
+	case errors.Is(err, project.ErrRestoreWindowExpired):
+		writeError(w, http.StatusGone, "restore_window_expired", "This project can no longer be restored")
+	default:
+		writeError(w, http.StatusInternalServerError, "internal_error", "Something went wrong, please try again")
+	}
 }

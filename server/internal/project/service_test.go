@@ -19,6 +19,10 @@ type fakeRepo struct {
 	nextID   int
 	projects map[string]*project.Project
 	members  map[string][]project.Member
+
+	// Lifecycle state (see lifecycle_test.go).
+	deleted map[string]*deletedProject
+	clock   func() time.Time
 }
 
 func newFakeRepo() *fakeRepo {

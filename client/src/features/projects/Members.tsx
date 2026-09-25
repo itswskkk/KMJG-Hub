@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { ApiError, DirectInvitation, InviteCredential, ProjectDetail, ProjectMember, cancelInvitation, createDirectInvitation, createInviteCredential, listInviteCredentials, listProjectInvitations, removeProjectMember, revokeInviteCredential } from "../../lib/apiClient";
+import { ApiError, DirectInvitation, InviteCredential, ProjectDetail, ProjectMember, cancelInvitation, createDirectInvitation, createInviteCredential, listInviteCredentials, listProjectInvitations, isSessionExpired, removeProjectMember, revokeInviteCredential, transferOwnership, updateMemberRole } from "../../lib/apiClient";
 import { ProjectPresence, useProjectPresence } from "../presence/PresenceProvider";
 import { useProjectWorkContexts } from "../work-context/useProjectWorkContexts";
 import "./Members.css";
@@ -10,6 +10,9 @@ interface MembersProps {
   token: string;
   viewerUserId: string;
   onMemberRemoved: (userId: string) => void;
+  /** Reloads Project detail after a role change or ownership transfer. */
+  onMembershipChanged: () => void;
+  onSessionExpired: () => void;
 }
 
 /**
@@ -36,7 +39,7 @@ interface MembersProps {
  * (Direct Messages, Direct File Transfer, Git) and are rendered disabled
  * rather than omitted or faked. Current Task is shown as member context.
  */
-function Members({ detail, serverUrl, token, viewerUserId, onMemberRemoved }: MembersProps) {
+function Members({ detail, serverUrl, token, viewerUserId, onMemberRemoved, onMembershipChanged, onSessionExpired }: MembersProps) {
   const [selected, setSelected] = useState<ProjectMember | null>(null);
   const presence = useProjectPresence(detail.id);
 	const {contexts:workContexts}=useProjectWorkContexts(serverUrl,token,detail.id);
@@ -134,10 +137,13 @@ function Members({ detail, serverUrl, token, viewerUserId, onMemberRemoved }: Me
           presence={presence}
 		  workContext={workContexts[selected.id]}
           canRemove={canRemoveMember(detail.role, viewerUserId, selected)}
+          canManageRoles={detail.role === "owner" && selected.role !== "owner"}
           serverUrl={serverUrl}
           token={token}
           projectId={detail.id}
           onRemoved={onMemberRemoved}
+          onChanged={onMembershipChanged}
+          onSessionExpired={onSessionExpired}
           onClose={() => setSelected(null)}
         />
       )}
@@ -180,19 +186,51 @@ interface MemberDetailProps {
   member: ProjectMember;
   presence: ProjectPresence;
   canRemove: boolean;
+  /**
+   * Role changes and ownership transfer are Owner-only (docs/PRD.md "Roles
+   * and Permissions"), never on the Owner's own entry; the Server enforces
+   * the same rule.
+   */
+  canManageRoles: boolean;
   serverUrl: string;
   token: string;
   projectId: string;
   onRemoved: (userId: string) => void;
+  onChanged: () => void;
+  onSessionExpired: () => void;
   onClose: () => void;
 	workContext?: import("../../lib/apiClient").ProjectWorkContext;
 }
 
-function MemberDetail({ member, presence, workContext, canRemove, serverUrl, token, projectId, onRemoved, onClose }: MemberDetailProps) {
+function MemberDetail({ member, presence, workContext, canRemove, canManageRoles, serverUrl, token, projectId, onRemoved, onChanged, onSessionExpired, onClose }: MemberDetailProps) {
   const online = presence.isOnline(member.id);
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removalError, setRemovalError] = useState<string | null>(null);
+  const [confirmingTransfer, setConfirmingTransfer] = useState(false);
+  const [previousOwnerRole, setPreviousOwnerRole] = useState<"admin" | "member">("admin");
+  const [roleBusy, setRoleBusy] = useState(false);
+  const [roleError, setRoleError] = useState<string | null>(null);
+
+  async function runRoleAction(action: () => Promise<void>, fallback: string) {
+    setRoleBusy(true);
+    setRoleError(null);
+    try {
+      await action();
+    } catch (error) {
+      if (isSessionExpired(error)) {
+        onSessionExpired();
+        return;
+      }
+      setRoleError(error instanceof ApiError ? error.message : fallback);
+      setRoleBusy(false);
+      return;
+    }
+    onChanged();
+    onClose();
+  }
+
+  const nextRole = member.role === "admin" ? "member" : "admin";
 
   async function removeMember() {
     setRemoving(true);
@@ -234,12 +272,60 @@ function MemberDetail({ member, presence, workContext, canRemove, serverUrl, tok
             View Branch
           </button>
           {member.current_task_title && <p className="members__note">Current task: {member.current_task_title}</p>}
+          {canManageRoles && (
+            <>
+              <button
+                type="button"
+                disabled={roleBusy}
+                onClick={() => runRoleAction(() => updateMemberRole(serverUrl, token, projectId, member.id, nextRole), "Could not change this member's role.")}
+              >
+                {nextRole === "admin" ? "Promote to Admin" : "Demote to Member"}
+              </button>
+              <button type="button" disabled={roleBusy} onClick={() => setConfirmingTransfer(true)}>
+                Transfer Ownership
+              </button>
+            </>
+          )}
           {canRemove && (
             <button type="button" className="member-detail__remove" onClick={() => setConfirmingRemoval(true)}>
               Remove Member
             </button>
           )}
         </div>
+
+        {roleError && !confirmingTransfer && <p className="member-detail__error" role="alert">{roleError}</p>}
+
+        {confirmingTransfer && (
+          <section className="member-detail__confirm" role="alertdialog" aria-labelledby="transfer-owner-title">
+            <h3 id="transfer-owner-title">Make {member.username} the Project Owner?</h3>
+            <p>You will stay in the Project with the role you choose below. A Project always has exactly one Owner.</p>
+            <label>
+              Your role after the transfer{" "}
+              <select
+                aria-label="Your role after the transfer"
+                value={previousOwnerRole}
+                onChange={(event) => setPreviousOwnerRole(event.target.value as "admin" | "member")}
+              >
+                <option value="admin">Admin</option>
+                <option value="member">Member</option>
+              </select>
+            </label>
+            {roleError && <p className="member-detail__error" role="alert">{roleError}</p>}
+            <div className="member-detail__actions">
+              <button type="button" onClick={() => setConfirmingTransfer(false)} disabled={roleBusy}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="member-detail__remove"
+                disabled={roleBusy}
+                onClick={() => runRoleAction(() => transferOwnership(serverUrl, token, projectId, member.id, previousOwnerRole), "Could not transfer ownership.")}
+              >
+                {roleBusy ? "Transferring…" : "Transfer Ownership"}
+              </button>
+            </div>
+          </section>
+        )}
 
         {confirmingRemoval && (
           <section className="member-detail__confirm" role="alertdialog" aria-labelledby="remove-member-title">

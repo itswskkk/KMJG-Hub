@@ -146,7 +146,7 @@ func newTestRouterWithHandlers() (http.Handler, *httpapi.Handlers, *fakeProjectR
 		SessionTTL: time.Hour,
 	}
 	projectRepo := newFakeProjectRepo(users)
-	projectSvc := &project.Service{Repo: projectRepo}
+	projectSvc := &project.Service{Repo: projectRepo, Lifecycle: projectRepo}
 	hub := realtime.NewHub(context.Background())
 	notificationSvc := &notification.Service{Repo: notificationtest.NewMemory(), Publisher: &notification.RealtimePublisher{Hub: hub}}
 	invitationSvc := &invitation.Service{Repo: newFakeInvitationRepo(users, projectRepo), Notifier: notificationSvc}

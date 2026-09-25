@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ApiError, DirectInvitation, ProjectSummary, acceptInvitation, declineInvitation, isSessionExpired, joinProjectWithInvite, listNotifications, listProjects, listReceivedInvitations, logout } from "../../lib/apiClient";
+import { ApiError, DeletedProject, DirectInvitation, ProjectSummary, acceptInvitation, declineInvitation, isSessionExpired, joinProjectWithInvite, listNotifications, listProjects, listReceivedInvitations, listDeletedProjects, logout, restoreProject } from "../../lib/apiClient";
 import { useNotificationEvents } from "../presence/PresenceProvider";
 import "./ServerHome.css";
 import "./Notifications.css";
@@ -27,6 +27,9 @@ function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject
   const [joinInput, setJoinInput] = useState("");
   const [joining, setJoining] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [deletedProjects, setDeletedProjects] = useState<DeletedProject[]>([]);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [deletedError, setDeletedError] = useState<string | null>(null);
   const notificationEvents = useNotificationEvents();
   const latestNotification = notificationEvents[notificationEvents.length - 1];
 
@@ -66,6 +69,32 @@ function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverUrl, token]);
+
+  // "Recently Deleted Projects" (docs/PRD.md "Project Recovery"): only the
+  // Owner who deleted a Project sees it here, and the section is hidden
+  // entirely when there is nothing to restore.
+  useEffect(() => {
+    let cancelled = false;
+    listDeletedProjects(serverUrl, token)
+      .then((items) => { if (!cancelled) setDeletedProjects(items); })
+      .catch(() => { /* recovery list is best-effort; the main project list surfaces errors */ });
+    return () => { cancelled = true; };
+  }, [serverUrl, token]);
+
+  async function restore(item: DeletedProject) {
+    setRestoringId(item.id);
+    setDeletedError(null);
+    try {
+      await restoreProject(serverUrl, token, item.id);
+      setDeletedProjects((current) => current.filter((entry) => entry.id !== item.id));
+      setProjects(await listProjects(serverUrl, token));
+    } catch (err) {
+      if (isSessionExpired(err)) { onSessionExpired(); return; }
+      setDeletedError(err instanceof ApiError ? err.message : "Could not restore this project.");
+    } finally {
+      setRestoringId(null);
+    }
+  }
 
   const invitationTrigger = latestNotification?.event_type === "project_invitation" ? latestNotification.id : null;
   useEffect(() => {
@@ -200,9 +229,35 @@ function ServerHome({ serverUrl, token, username, onOpenProject, onCreateProject
           <input aria-label="Invite link or code" placeholder="Invite link or code" value={joinInput} onChange={(event) => setJoinInput(event.target.value)} />
           <button type="button" onClick={joinProject} disabled={joining || joinInput.trim() === ""}>{joining ? "Joining…" : "Join Project"}</button>
         </div>
+
+        {deletedProjects.length > 0 && (
+          <>
+            <h2>Recently Deleted Projects</h2>
+            {deletedError && <p className="server-home__error" role="alert">{deletedError}</p>}
+            <ul className="server-home__project-list">
+              {deletedProjects.map((item) => (
+                <li key={item.id} className="server-home__project-card">
+                  <div>
+                    <h3>{item.name}</h3>
+                    <p className="server-home__project-meta">{restoreTimeLeft(item.restore_deadline)}</p>
+                  </div>
+                  <button type="button" onClick={() => restore(item)} disabled={restoringId !== null}>
+                    {restoringId === item.id ? "Restoring…" : "Restore"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
       </section>
     </main>
   );
+}
+
+function restoreTimeLeft(deadline: string): string {
+  const days = Math.ceil((new Date(deadline).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+  if (days <= 1) return "Restorable for less than a day";
+  return `Restorable for ${days} more days`;
 }
 
 export default ServerHome;

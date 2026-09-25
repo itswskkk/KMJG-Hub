@@ -1,6 +1,7 @@
 import { ProjectDetail } from "../../lib/apiClient";
 import { useProjectPresence } from "../presence/PresenceProvider";
 import ProjectRepositorySection from "./ProjectRepositorySection";
+import ProjectDangerZone from "./ProjectDangerZone";
 import "./Overview.css";
 
 interface OverviewProps {
@@ -9,6 +10,8 @@ interface OverviewProps {
   token: string;
   onViewMembers: () => void;
   onSessionExpired: () => void;
+  /** Called after the viewer left or deleted the Project. */
+  onProjectClosed: () => void;
 }
 
 /**
@@ -23,7 +26,7 @@ interface OverviewProps {
  * are shown honestly as not-yet-available rather than backed by fabricated
  * data, the same pattern used for the disabled GitHub login option.
  */
-function Overview({ detail, serverUrl, token, onViewMembers, onSessionExpired }: OverviewProps) {
+function Overview({ detail, serverUrl, token, onViewMembers, onSessionExpired, onProjectClosed }: OverviewProps) {
   const presence = useProjectPresence(detail.id);
   const onlineCount = presence.ready
     ? detail.members.filter((m) => presence.isOnline(m.id) === true).length
@@ -75,6 +78,14 @@ function Overview({ detail, serverUrl, token, onViewMembers, onSessionExpired }:
         <h2>Recent Project Activity</h2>
         <p className="overview__note">Project activity is not implemented yet.</p>
       </section>
+
+      <ProjectDangerZone
+        detail={detail}
+        serverUrl={serverUrl}
+        token={token}
+        onProjectClosed={onProjectClosed}
+        onSessionExpired={onSessionExpired}
+      />
     </div>
   );
 }
