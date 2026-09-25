@@ -7,9 +7,11 @@ use std::{
 };
 use tauri::{AppHandle, Manager};
 
+mod tools;
+
 const KEYRING_SERVICE: &str = "com.kmjghub.client";
 
-fn database(app: &AppHandle) -> Result<Connection, String> {
+pub(crate) fn database(app: &AppHandle) -> Result<Connection, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let db = Connection::open(dir.join("client.sqlite3")).map_err(|e| e.to_string())?;
@@ -165,12 +167,17 @@ fn current_git_repository(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             save_session,
             load_sessions,
             delete_session,
             select_git_repository,
-            current_git_repository
+            current_git_repository,
+            tools::launch_terminal,
+            tools::launch_vscode,
+            tools::launch_tool,
+            tools::is_tool_installed
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

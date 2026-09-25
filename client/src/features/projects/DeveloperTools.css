@@ -1,0 +1,50 @@
+.developer-tools h2 {
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.developer-tools__note {
+  opacity: 0.6;
+  font-size: 0.875rem;
+  font-style: italic;
+  margin: 0.35rem 0 0;
+}
+
+.developer-tools__path {
+  opacity: 0.6;
+  font-size: 0.8rem;
+  font-family: monospace;
+  margin: 0 0 1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.developer-tools__grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.developer-tools__tool {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  min-width: 8rem;
+}
+
+.developer-tools__tool button {
+  width: 100%;
+}
+
+.developer-tools__badge {
+  font-size: 0.75rem;
+  opacity: 0.6;
+}
+
+.developer-tools__error {
+  color: #d9534f;
+  font-size: 0.8rem;
+  margin: 0;
+}

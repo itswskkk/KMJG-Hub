@@ -4,6 +4,7 @@ import Overview from "./Overview";
 import Members from "./Members";
 import ProjectChat from "./ProjectChat";
 import ProjectTasks from "./ProjectTasks";
+import DeveloperTools from "./DeveloperTools";
 import { useProjectTaskEvents } from "../presence/PresenceProvider";
 import WorkContextPanel from "../work-context/WorkContextPanel";
 import "./ProjectWorkspace.css";
@@ -17,13 +18,13 @@ interface ProjectWorkspaceProps {
   onSessionExpired: () => void;
 }
 
-type Section = "overview" | "chat" | "tasks" | "members";
+type Section = "overview" | "chat" | "tasks" | "members" | "developerTools";
 
 // Sidebar navigation per docs/UX.md "Project Workspace". Overview, Chat,
-// and Members are implemented; the rest are real Project
+// Members, and Developer Tools are implemented; the rest are real Project
 // Workspace sections from the same UX spec, shown but disabled rather than
 // omitted, the same treatment as the disabled GitHub login option.
-const DISABLED_SIDEBAR_ITEMS = ["Git", "Files", "Developer Tools"];
+const DISABLED_SIDEBAR_ITEMS = ["Git", "Files"];
 
 function ProjectWorkspace({
   serverUrl,
@@ -126,6 +127,17 @@ function ProjectWorkspace({
           >
             Members
           </button>
+          <button
+            type="button"
+            className={
+              section === "developerTools"
+                ? "project-workspace__nav-item project-workspace__nav-item--active"
+                : "project-workspace__nav-item"
+            }
+            onClick={() => setSection("developerTools")}
+          >
+            Developer Tools
+          </button>
           {DISABLED_SIDEBAR_ITEMS.map((item) => (
             <span
               key={item}
@@ -151,6 +163,7 @@ function ProjectWorkspace({
           <ProjectChat detail={detail} serverUrl={serverUrl} token={token} viewerUserId={viewerUserId} onSessionExpired={onSessionExpired} />
         )}
         {detail && section === "tasks" && <ProjectTasks detail={detail} serverUrl={serverUrl} token={token} viewerUserId={viewerUserId} onSessionExpired={onSessionExpired} />}
+        {detail && section === "developerTools" && <DeveloperTools projectId={projectId} />}
         {detail && section === "members" && (
           <Members
             detail={detail}
