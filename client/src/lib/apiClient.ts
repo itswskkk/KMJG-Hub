@@ -419,3 +419,89 @@ export function revokeInviteCredential(serverUrl: string, token: string, project
 export function joinProjectWithInvite(serverUrl: string, token: string, invite: string): Promise<{ project_id: string }> {
   return request(serverUrl, "/api/v1/invitations/join", { method: "POST", headers: authHeaders(token), body: JSON.stringify({ invite }) });
 }
+
+/** A profile field's visibility audience (docs/PRD.md § User Profiles). */
+export type PrivacyAudience =
+  | "everyone"
+  | "friends"
+  | "project_members"
+  | "friends_and_project_members"
+  | "nobody";
+
+/** A profile field that can carry its own privacy audience. */
+export type ProfileField =
+  | "display_name"
+  | "avatar"
+  | "bio"
+  | "current_project"
+  | "current_task"
+  | "current_branch"
+  | "repositories";
+
+export interface ProfilePrivacySetting {
+  field: ProfileField;
+  audience: PrivacyAudience;
+}
+
+/**
+ * A user profile, as returned by the profile endpoints. `email` and
+ * `privacy` are only ever present on the viewer's own profile (GET
+ * /api/v1/users/me) — the Server omits them entirely from a public
+ * profile's response rather than sending them empty, so their absence here
+ * is exactly what to check for "is this my own profile".
+ */
+export interface UserProfile {
+  user_id: string;
+  username: string;
+  email?: string;
+  display_name?: string | null;
+  avatar?: string | null;
+  bio?: string | null;
+  presence?: "online" | "offline" | null;
+  current_project?: string | null;
+  current_task?: string | null;
+  current_branch?: string | null;
+  repositories?: string[];
+  privacy?: ProfilePrivacySetting[];
+}
+
+/** The authenticated user's own full profile, including email and privacy. */
+export function getOwnProfile(serverUrl: string, token: string): Promise<UserProfile> {
+  return request<UserProfile>(serverUrl, "/api/v1/users/me", { headers: authHeaders(token) });
+}
+
+/** Another user's profile, filtered by their privacy settings and their relationship to the viewer. */
+export function getPublicProfile(serverUrl: string, token: string, userId: string): Promise<UserProfile> {
+  return request<UserProfile>(serverUrl, `/api/v1/users/${encodeURIComponent(userId)}/profile`, {
+    headers: authHeaders(token),
+  });
+}
+
+/**
+ * Updates the authenticated user's own profile fields. Omit a key to leave
+ * it unchanged; pass "" to clear it. Returns the updated own profile.
+ */
+export function updateProfile(
+  serverUrl: string,
+  token: string,
+  input: { display_name?: string; avatar?: string; bio?: string },
+): Promise<UserProfile> {
+  return request<UserProfile>(serverUrl, "/api/v1/users/profile", {
+    method: "PUT",
+    headers: authHeaders(token),
+    body: JSON.stringify(input),
+  });
+}
+
+/** Sets the visibility audience for one or more of the authenticated user's own profile fields. */
+export function setProfilePrivacy(
+  serverUrl: string,
+  token: string,
+  settings: ProfilePrivacySetting[],
+): Promise<UserProfile> {
+  return request<UserProfile>(serverUrl, "/api/v1/users/profile/privacy", {
+    method: "PUT",
+    headers: authHeaders(token),
+    body: JSON.stringify({ settings }),
+  });
+}

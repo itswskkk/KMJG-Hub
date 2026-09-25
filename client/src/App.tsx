@@ -3,6 +3,7 @@ import ConnectServer from "./features/connect-server/ConnectServer";
 import Login from "./features/auth/Login";
 import Register from "./features/auth/Register";
 import ServerHome from "./features/server-home/ServerHome";
+import Profile from "./features/server-home/Profile";
 import CreateProject from "./features/projects/CreateProject";
 import ProjectWorkspace from "./features/projects/ProjectWorkspace";
 import { PresenceProvider } from "./features/presence/PresenceProvider";
@@ -19,6 +20,7 @@ type Screen =
   | { kind: "register"; serverUrl: string }
   | { kind: "server-home"; serverUrl: string; auth: AuthResponse }
   | { kind: "create-project"; serverUrl: string; auth: AuthResponse }
+  | { kind: "profile"; serverUrl: string; auth: AuthResponse }
   | { kind: "project"; serverUrl: string; auth: AuthResponse; projectId: string };
 
 function App() {
@@ -123,7 +125,21 @@ function App() {
           username={auth.user.username}
           onOpenProject={(projectId) => setScreen({ kind: "project", serverUrl, auth, projectId })}
           onCreateProject={() => setScreen({ kind: "create-project", serverUrl, auth })}
+          onOpenProfile={() => setScreen({ kind: "profile", serverUrl, auth })}
 		  onSessionExpired={() => sessionInvalid(serverUrl)}
+        />
+      );
+      break;
+    }
+
+    case "profile": {
+      const { serverUrl, auth } = screen;
+      content = (
+        <Profile
+          serverUrl={serverUrl}
+          token={auth.session.token}
+          onBack={() => setScreen({ kind: "server-home", serverUrl, auth })}
+          onSessionExpired={() => sessionInvalid(serverUrl)}
         />
       );
       break;

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -59,6 +60,19 @@ func (h *Handlers) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeAuthError(w, err)
 		return
+	}
+
+	// Materialize this user's default field-level profile privacy so
+	// GET /api/v1/users/me shows explicit settings from the start rather
+	// than depending on Service's in-memory fallback (docs/PRD.md § User
+	// Profiles' documented defaults: bio -> friends, everything else ->
+	// everyone). This is best-effort: privacy filtering already falls back
+	// to the same defaults when no row exists, so a failure here must not
+	// fail registration itself.
+	if h.Profiles != nil {
+		if err := h.Profiles.InitializeDefaultPrivacy(r.Context(), res.User.ID); err != nil {
+			slog.Error("httpapi: initialize default profile privacy failed", "error", err, "user_id", res.User.ID)
+		}
 	}
 
 	writeJSON(w, http.StatusCreated, toAuthResponse(res))

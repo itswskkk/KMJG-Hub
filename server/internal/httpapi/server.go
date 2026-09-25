@@ -10,6 +10,7 @@ import (
 	"github.com/itswskkk/KMJG-Hub/server/internal/chat"
 	"github.com/itswskkk/KMJG-Hub/server/internal/invitation"
 	"github.com/itswskkk/KMJG-Hub/server/internal/presence"
+	"github.com/itswskkk/KMJG-Hub/server/internal/profile"
 	"github.com/itswskkk/KMJG-Hub/server/internal/project"
 	"github.com/itswskkk/KMJG-Hub/server/internal/realtime"
 	"github.com/itswskkk/KMJG-Hub/server/internal/task"
@@ -26,6 +27,7 @@ type Handlers struct {
 	Invitations  *invitation.Service
 	Chat         *chat.Service
 	Tasks        *task.Service
+	Profiles     *profile.Service
 	Realtime     *realtime.Hub
 	Presence     *presence.Service
 	WorkContexts *workcontext.Service
@@ -87,6 +89,11 @@ func NewRouter(h *Handlers, allowedOrigins []string) http.Handler {
 	mux.Handle("POST /api/v1/task-assignment-requests/{requestID}/accept", authed(http.HandlerFunc(h.handleAcceptTaskAssignment)))
 	mux.Handle("POST /api/v1/task-assignment-requests/{requestID}/decline", authed(http.HandlerFunc(h.handleDeclineTaskAssignment)))
 	mux.Handle("GET /api/v1/task-assignment-requests", authed(http.HandlerFunc(h.handleListTaskAssignmentRequests)))
+
+	mux.Handle("GET /api/v1/users/me", authed(http.HandlerFunc(h.handleGetOwnProfile)))
+	mux.Handle("GET /api/v1/users/{id}/profile", authed(http.HandlerFunc(h.handleGetPublicProfile)))
+	mux.Handle("PUT /api/v1/users/profile", authed(http.HandlerFunc(h.handleUpdateProfile)))
+	mux.Handle("PUT /api/v1/users/profile/privacy", authed(http.HandlerFunc(h.handleSetPrivacy)))
 
 	// Not wrapped in requireAuth: a browser's native WebSocket API cannot
 	// set an Authorization header on the upgrade request, so this
