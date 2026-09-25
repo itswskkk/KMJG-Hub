@@ -37,6 +37,7 @@ type Comment struct {
 
 type AssignmentRequest struct {
 	ID, TaskID, ProjectID, RequesterID, RecipientID string
+	TaskTitle, RequesterUsername                    string
 	Status                                          string
 	CreatedAt                                       time.Time
 }
@@ -48,6 +49,7 @@ type Repository interface {
 	SetStatus(ctx context.Context, projectID, taskID, actorID string, status Status) (*Task, error)
 	AssignSelf(ctx context.Context, projectID, taskID, userID string) (*Task, error)
 	RequestAssignment(ctx context.Context, projectID, taskID, requesterID, recipientID string) (*AssignmentRequest, error)
+	ListPendingAssignments(ctx context.Context, recipientID string) ([]AssignmentRequest, error)
 	RespondAssignment(ctx context.Context, requestID, recipientID string, accept bool) (*Task, error)
 	SetCurrent(ctx context.Context, projectID, taskID, userID string) (*Task, error)
 	ListComments(ctx context.Context, projectID, taskID, viewerID string) ([]Comment, error)

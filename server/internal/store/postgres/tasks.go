@@ -177,3 +177,20 @@ func (r *TaskRepository) AddComment(ctx context.Context, projectID, taskID, auth
 	}
 	return &c, err
 }
+
+func (r *TaskRepository) ListPendingAssignments(ctx context.Context, recipientID string) ([]task.AssignmentRequest, error) {
+	rows, err := r.pool.Query(ctx, `SELECT r.id,r.task_id,r.project_id,r.requester_user_id,r.recipient_user_id,t.title,u.username,r.status,r.created_at FROM task_assignment_requests r JOIN project_tasks t ON t.id=r.task_id JOIN users u ON u.id=r.requester_user_id WHERE r.recipient_user_id=$1 AND r.status='pending' ORDER BY r.created_at,r.id`, recipientID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []task.AssignmentRequest{}
+	for rows.Next() {
+		var item task.AssignmentRequest
+		if err := rows.Scan(&item.ID, &item.TaskID, &item.ProjectID, &item.RequesterID, &item.RecipientID, &item.TaskTitle, &item.RequesterUsername, &item.Status, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}

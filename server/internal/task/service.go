@@ -54,6 +54,10 @@ func (s *Service) Assign(ctx context.Context, userID, projectID, taskID, assigne
 func (s *Service) RespondAssignment(ctx context.Context, userID, requestID string, accept bool) (*Task, error) {
 	return s.Repo.RespondAssignment(ctx, requestID, userID, accept)
 }
+
+func (s *Service) ListPendingAssignments(ctx context.Context, userID string) ([]AssignmentRequest, error) {
+	return s.Repo.ListPendingAssignments(ctx, userID)
+}
 func (s *Service) SetCurrent(ctx context.Context, userID, projectID, taskID string) (*Task, error) {
 	return s.Repo.SetCurrent(ctx, projectID, taskID, userID)
 }

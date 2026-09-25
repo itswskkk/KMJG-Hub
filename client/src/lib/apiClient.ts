@@ -176,6 +176,16 @@ export interface ProjectTask {
   updated_at: string;
 }
 
+export interface TaskComment {
+  id: string;
+  task_id: string;
+  author_id: string;
+  author_username: string;
+  body: string;
+  created_at: string;
+}
+export interface TaskAssignmentRequest { id: string; task_id: string; project_id: string; task_title: string; requester_username: string; created_at: string; }
+
 export interface DirectInvitation {
   id: string;
   project_id: string;
@@ -277,6 +287,33 @@ export function setProjectTaskStatus(
     method: "PATCH", headers: authHeaders(token), body: JSON.stringify({ status }),
   });
 }
+
+export function assignProjectTask(serverUrl: string, token: string, projectId: string, taskId: string, assigneeId: string): Promise<ProjectTask> {
+  return request<ProjectTask>(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/assign`, {
+    method: "POST", headers: authHeaders(token), body: JSON.stringify({ assignee_id: assigneeId }),
+  });
+}
+
+export function setCurrentProjectTask(serverUrl: string, token: string, projectId: string, taskId: string): Promise<ProjectTask> {
+  return request<ProjectTask>(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/current`, {
+    method: "POST", headers: authHeaders(token),
+  });
+}
+
+export async function listTaskComments(serverUrl: string, token: string, projectId: string, taskId: string): Promise<TaskComment[]> {
+  const body = await request<{ comments: TaskComment[] | null }>(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/comments`, {
+    headers: authHeaders(token),
+  });
+  return body.comments ?? [];
+}
+
+export function addTaskComment(serverUrl: string, token: string, projectId: string, taskId: string, body: string): Promise<TaskComment> {
+  return request<TaskComment>(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/comments`, {
+    method: "POST", headers: authHeaders(token), body: JSON.stringify({ body }),
+  });
+}
+export async function listTaskAssignmentRequests(serverUrl: string, token: string): Promise<TaskAssignmentRequest[]> { const body = await request<{ requests: TaskAssignmentRequest[] | null }>(serverUrl, "/api/v1/task-assignment-requests", { headers: authHeaders(token) }); return body.requests ?? []; }
+export function respondTaskAssignment(serverUrl: string, token: string, id: string, accept: boolean): Promise<ProjectTask> { return request<ProjectTask>(serverUrl, `/api/v1/task-assignment-requests/${encodeURIComponent(id)}/${accept ? "accept" : "decline"}`, { method: "POST", headers: authHeaders(token) }); }
 
 /** Removes a different member when the authenticated Project role permits it. */
 export function removeProjectMember(

@@ -80,6 +80,7 @@ func NewRouter(h *Handlers, allowedOrigins []string) http.Handler {
 	mux.Handle("POST /api/v1/projects/{id}/tasks/{taskID}/comments", authed(http.HandlerFunc(h.handleAddTaskComment)))
 	mux.Handle("POST /api/v1/task-assignment-requests/{requestID}/accept", authed(http.HandlerFunc(h.handleAcceptTaskAssignment)))
 	mux.Handle("POST /api/v1/task-assignment-requests/{requestID}/decline", authed(http.HandlerFunc(h.handleDeclineTaskAssignment)))
+	mux.Handle("GET /api/v1/task-assignment-requests", authed(http.HandlerFunc(h.handleListTaskAssignmentRequests)))
 
 	// Not wrapped in requireAuth: a browser's native WebSocket API cannot
 	// set an Authorization header on the upgrade request, so this

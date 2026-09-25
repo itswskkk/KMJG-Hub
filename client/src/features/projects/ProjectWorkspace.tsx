@@ -133,7 +133,7 @@ function ProjectWorkspace({
         {detail && section === "chat" && (
           <ProjectChat detail={detail} serverUrl={serverUrl} token={token} viewerUserId={viewerUserId} onSessionExpired={onSessionExpired} />
         )}
-        {detail && section === "tasks" && <ProjectTasks detail={detail} serverUrl={serverUrl} token={token} onSessionExpired={onSessionExpired} />}
+        {detail && section === "tasks" && <ProjectTasks detail={detail} serverUrl={serverUrl} token={token} viewerUserId={viewerUserId} onSessionExpired={onSessionExpired} />}
         {detail && section === "members" && (
           <Members
             detail={detail}

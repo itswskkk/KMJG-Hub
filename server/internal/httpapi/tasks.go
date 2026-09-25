@@ -170,6 +170,28 @@ func (h *Handlers) handleAcceptTaskAssignment(w http.ResponseWriter, r *http.Req
 func (h *Handlers) handleDeclineTaskAssignment(w http.ResponseWriter, r *http.Request) {
 	h.respondTaskAssignment(w, r, false)
 }
+
+type assignmentRequestDTO struct {
+	ID                string    `json:"id"`
+	TaskID            string    `json:"task_id"`
+	ProjectID         string    `json:"project_id"`
+	TaskTitle         string    `json:"task_title"`
+	RequesterUsername string    `json:"requester_username"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+
+func (h *Handlers) handleListTaskAssignmentRequests(w http.ResponseWriter, r *http.Request) {
+	items, err := h.Tasks.ListPendingAssignments(r.Context(), currentAuth(r).User.ID)
+	if err != nil {
+		writeTaskError(w, err)
+		return
+	}
+	out := make([]assignmentRequestDTO, len(items))
+	for i, item := range items {
+		out[i] = assignmentRequestDTO{item.ID, item.TaskID, item.ProjectID, item.TaskTitle, item.RequesterUsername, item.CreatedAt}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"requests": out})
+}
 func writeTaskError(w http.ResponseWriter, e error) {
 	var v *task.ValidationError
 	switch {
