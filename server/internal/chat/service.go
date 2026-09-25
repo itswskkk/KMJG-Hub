@@ -137,6 +137,36 @@ func (s *Service) SendAttachment(ctx context.Context, userID, projectID, body, f
 	return message, nil
 }
 
+// CreateSystemMessage posts Server-generated activity of the given kind
+// (e.g. KindGit) into projectID's chat and broadcasts it to current members
+// like any other message. Over-long bodies are truncated rather than
+// rejected, since the triggering activity has already happened.
+func (s *Service) CreateSystemMessage(ctx context.Context, projectID, kind, body string) (*Message, error) {
+	if kind == "" || kind == KindUser {
+		return nil, &ValidationError{Field: "kind", Message: "System messages need a non-user kind"}
+	}
+	body = strings.ToValidUTF8(strings.TrimSpace(body), "�")
+	if body == "" {
+		return nil, &ValidationError{Field: "body", Message: "Message cannot be empty"}
+	}
+	if utf8.RuneCountInString(body) > MaxMessageCharacters {
+		body = string([]rune(body)[:MaxMessageCharacters-1]) + "…"
+	}
+	message, err := s.Repo.CreateSystem(ctx, projectID, kind, body)
+	if err != nil {
+		return nil, err
+	}
+	s.publishCreated(ctx, *message)
+	return message, nil
+}
+
+// ListAttachments returns every file shared through projectID's chat
+// (attachments of messages that have not been deleted), newest first, for
+// the Files section. Non-members get ErrNotFound.
+func (s *Service) ListAttachments(ctx context.Context, userID, projectID string) ([]ProjectFile, error) {
+	return s.Repo.ListFiles(ctx, projectID, userID)
+}
+
 func (s *Service) OpenAttachment(ctx context.Context, userID, projectID, attachmentID string) (*Attachment, io.ReadCloser, error) {
 	attachment, err := s.Repo.GetAttachment(ctx, projectID, attachmentID, userID)
 	if err != nil {

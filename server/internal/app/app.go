@@ -160,7 +160,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		Notifier:       notificationService,
 		MaxUploadBytes: cfg.MaxUploadBytes,
 	}
-	githubService, err := newGitHubService(cfg, pool, projectService, hub, notificationService)
+	githubService, err := newGitHubService(cfg, pool, projectService, hub, notificationService, gitChatPoster{Chat: chatService})
 	if err != nil {
 		cancel()
 		hub.Shutdown()
@@ -211,11 +211,22 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	return a, nil
 }
 
+// gitChatPoster adapts *chat.Service to github.ChatPoster, posting Git push
+// activity as a Server-generated (non-user) Project Chat message.
+type gitChatPoster struct {
+	Chat *chat.Service
+}
+
+func (p gitChatPoster) PostGitActivity(ctx context.Context, projectID, body string) error {
+	_, err := p.Chat.CreateSystemMessage(ctx, projectID, chat.KindGit, body)
+	return err
+}
+
 // newGitHubService wires the optional GitHub integration. Without an OAuth
 // App client ID/secret the service has no Client and reports "not
 // configured"; without a configured token encryption key a random dev-only
 // key is generated, so stored tokens do not survive a restart.
-func newGitHubService(cfg config.Config, pool *pgxpool.Pool, projects *project.Service, hub *realtime.Hub, notifier github.Notifier) (*github.Service, error) {
+func newGitHubService(cfg config.Config, pool *pgxpool.Pool, projects *project.Service, hub *realtime.Hub, notifier github.Notifier, chatPoster github.ChatPoster) (*github.Service, error) {
 	key := cfg.GitHubTokenEncryptionKey
 	if key == nil {
 		key = make([]byte, github.TokenKeySize)
@@ -231,6 +242,7 @@ func newGitHubService(cfg config.Config, pool *pgxpool.Pool, projects *project.S
 		Membership:    github.ProjectMembership{Projects: projects},
 		Publisher:     &github.RealtimePublisher{Hub: hub},
 		Notifier:      notifier,
+		ChatPoster:    chatPoster,
 		EncryptionKey: key,
 	}
 	if cfg.GitHubConfigured() {

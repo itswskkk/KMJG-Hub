@@ -153,9 +153,14 @@ export interface ProjectDetail {
   members: ProjectMember[];
 }
 
+/** "user" for member messages; any other kind (e.g. "git") is Server-generated activity with no author. */
+export type ProjectChatMessageKind = "user" | "git";
+
 export interface ProjectChatMessage {
   id: string;
   project_id: string;
+  kind?: ProjectChatMessageKind;
+  /** Empty for Server-generated activity. */
   author_id: string;
   author_username: string;
   body: string;
@@ -170,6 +175,13 @@ export interface ProjectChatAttachment {
 	filename: string;
 	content_type: string;
 	size_bytes: number;
+}
+
+/** A file shared through Project Chat, as listed by the Files section. */
+export interface ProjectFile extends ProjectChatAttachment {
+	author_id: string;
+	author_username: string;
+	created_at: string;
 }
 
 export interface ProjectChatPage {
@@ -291,6 +303,11 @@ export function deleteProjectMessage(serverUrl: string, token: string, projectId
 export function uploadProjectAttachment(serverUrl: string,token: string,projectId: string,file: File,body: string):Promise<ProjectChatMessage>{
 	const form=new FormData();form.append("file",file);form.append("body",body);
 	return request<ProjectChatMessage>(serverUrl,`/api/v1/projects/${encodeURIComponent(projectId)}/chat/attachments`,{method:"POST",headers:authHeaders(token),body:form});
+}
+
+export async function listProjectAttachments(serverUrl: string, token: string, projectId: string): Promise<ProjectFile[]> {
+	const body = await request<{ attachments: ProjectFile[] | null }>(serverUrl, `/api/v1/projects/${encodeURIComponent(projectId)}/chat/attachments`, { headers: authHeaders(token) });
+	return body.attachments ?? [];
 }
 
 export async function downloadProjectAttachment(serverUrl:string,token:string,projectId:string,attachment:ProjectChatAttachment):Promise<void>{

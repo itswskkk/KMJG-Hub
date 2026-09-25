@@ -90,6 +90,7 @@ func NewRouter(h *Handlers, allowedOrigins []string) http.Handler {
 	mux.Handle("GET /api/v1/projects/{id}/chat/messages", authed(http.HandlerFunc(h.handleListProjectMessages)))
 	mux.Handle("POST /api/v1/projects/{id}/chat/messages", authed(http.HandlerFunc(h.handleSendProjectMessage)))
 	mux.Handle("DELETE /api/v1/projects/{id}/chat/messages/{messageID}", authed(http.HandlerFunc(h.handleDeleteProjectMessage)))
+	mux.Handle("GET /api/v1/projects/{id}/chat/attachments", authed(http.HandlerFunc(h.handleListProjectAttachments)))
 	mux.Handle("POST /api/v1/projects/{id}/chat/attachments", authed(http.HandlerFunc(h.handleUploadProjectAttachment)))
 	mux.Handle("GET /api/v1/projects/{id}/chat/attachments/{attachmentID}", authed(http.HandlerFunc(h.handleDownloadProjectAttachment)))
 	mux.Handle("GET /api/v1/projects/{id}/work-contexts", authed(http.HandlerFunc(h.handleListWorkContexts)))

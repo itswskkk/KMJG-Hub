@@ -27,16 +27,34 @@ type Attachment struct {
 	SizeBytes   int64  `json:"size_bytes"`
 }
 
-// Message is one active user-authored Project Chat message. Soft-deleted
-// content is never returned through this normal Client-facing model.
+// Message kinds. KindUser messages are authored by a Project member;
+// every other kind is Server-generated activity with no author (AuthorID
+// and AuthorUsername are empty) that ordinary deletion does not apply to.
+const (
+	KindUser = "user"
+	KindGit  = "git"
+)
+
+// Message is one active Project Chat message. Soft-deleted content is never
+// returned through this normal Client-facing model.
 type Message struct {
 	ID             string
 	ProjectID      string
-	AuthorID       string
+	Kind           string
+	AuthorID       string // empty for Server-generated messages
 	AuthorUsername string
 	Body           string
 	CreatedAt      time.Time
 	Attachments    []Attachment
+}
+
+// ProjectFile is one Project Chat attachment as listed by the Files
+// section, with who shared it and when.
+type ProjectFile struct {
+	Attachment
+	AuthorID       string
+	AuthorUsername string
+	CreatedAt      time.Time
 }
 
 type Cursor struct {
@@ -53,7 +71,15 @@ type Page struct {
 type Repository interface {
 	Create(ctx context.Context, projectID, authorID, body string) (*Message, error)
 	ListPage(ctx context.Context, projectID, viewerID string, before *Cursor, limit int) ([]Message, error)
+	// CreateSystem stores a Server-generated message of the given
+	// (non-user) kind. There is no author and no membership check; it
+	// returns ErrNotFound when the Project does not exist or is deleted.
+	CreateSystem(ctx context.Context, projectID, kind, body string) (*Message, error)
 	CreateWithAttachment(ctx context.Context, projectID, authorID, body string, attachment Attachment, maxProjectBytes int64) (*Message, error)
+	// ListFiles returns every attachment of projectID's active (not
+	// deleted) messages, newest first, or ErrNotFound when viewerID is not
+	// a member.
+	ListFiles(ctx context.Context, projectID, viewerID string) ([]ProjectFile, error)
 	GetAttachment(ctx context.Context, projectID, attachmentID, viewerID string) (*Attachment, error)
 	ListExpiredAttachmentStorageIDs(ctx context.Context, cutoff time.Time) ([]string, error)
 	SoftDelete(ctx context.Context, projectID, messageID, actorID string) (*Message, error)

@@ -34,6 +34,7 @@ func messageEvent(message Message) map[string]any {
 	return map[string]any{
 		"id":              message.ID,
 		"project_id":      message.ProjectID,
+		"kind":            message.Kind,
 		"author_id":       message.AuthorID,
 		"author_username": message.AuthorUsername,
 		"body":            message.Body,

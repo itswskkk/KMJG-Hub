@@ -14,6 +14,7 @@ import (
 type projectMessageDTO struct {
 	ID             string            `json:"id"`
 	ProjectID      string            `json:"project_id"`
+	Kind           string            `json:"kind"`
 	AuthorID       string            `json:"author_id"`
 	AuthorUsername string            `json:"author_username"`
 	Body           string            `json:"body"`
@@ -23,7 +24,7 @@ type projectMessageDTO struct {
 
 func toProjectMessageDTO(message chat.Message) projectMessageDTO {
 	return projectMessageDTO{
-		ID: message.ID, ProjectID: message.ProjectID, AuthorID: message.AuthorID,
+		ID: message.ID, ProjectID: message.ProjectID, Kind: message.Kind, AuthorID: message.AuthorID,
 		AuthorUsername: message.AuthorUsername, Body: message.Body, CreatedAt: message.CreatedAt, Attachments: message.Attachments,
 	}
 }
@@ -89,6 +90,41 @@ func (h *Handlers) handleUploadProjectAttachment(w http.ResponseWriter, r *http.
 		return
 	}
 	writeJSON(w, http.StatusCreated, toProjectMessageDTO(*message))
+}
+
+type projectFileDTO struct {
+	ID             string    `json:"id"`
+	MessageID      string    `json:"message_id"`
+	ProjectID      string    `json:"project_id"`
+	Filename       string    `json:"filename"`
+	ContentType    string    `json:"content_type"`
+	SizeBytes      int64     `json:"size_bytes"`
+	AuthorID       string    `json:"author_id"`
+	AuthorUsername string    `json:"author_username"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+func toProjectFileDTO(f chat.ProjectFile) projectFileDTO {
+	return projectFileDTO{
+		ID: f.ID, MessageID: f.MessageID, ProjectID: f.ProjectID, Filename: f.Filename,
+		ContentType: f.ContentType, SizeBytes: f.SizeBytes, AuthorID: f.AuthorID,
+		AuthorUsername: f.AuthorUsername, CreatedAt: f.CreatedAt,
+	}
+}
+
+// handleListProjectAttachments backs the Files section: every file shared
+// through the Project's chat, newest first.
+func (h *Handlers) handleListProjectAttachments(w http.ResponseWriter, r *http.Request) {
+	files, err := h.Chat.ListAttachments(r.Context(), currentAuth(r).User.ID, r.PathValue("id"))
+	if err != nil {
+		writeChatError(w, err)
+		return
+	}
+	dtos := make([]projectFileDTO, len(files))
+	for i, f := range files {
+		dtos[i] = toProjectFileDTO(f)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"attachments": dtos})
 }
 
 func (h *Handlers) handleDownloadProjectAttachment(w http.ResponseWriter, r *http.Request) {

@@ -1,0 +1,62 @@
+.files-section h1 {
+  margin: 0;
+  text-align: left;
+}
+
+.files-section__intro {
+  margin: 0.25rem 0 1rem;
+  opacity: 0.65;
+}
+
+.files-section__note {
+  opacity: 0.6;
+  font-size: 0.875rem;
+  font-style: italic;
+}
+
+.files-section__error {
+  color: #b42318;
+}
+
+.files-section__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.files-section__item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.16);
+}
+
+.files-section__item:last-child {
+  border-bottom: 0;
+}
+
+.files-section__info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.files-section__info strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-section__info span {
+  opacity: 0.6;
+  font-size: 0.85rem;
+}
+
+.files-section__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}

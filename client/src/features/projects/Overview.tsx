@@ -71,7 +71,9 @@ function Overview({ detail, serverUrl, token, onViewMembers, onSessionExpired, o
 
       <section className="overview__section">
         <h2>Recent Git Activity</h2>
-        <p className="overview__note">Git activity is not implemented yet.</p>
+        <p className="overview__note">
+          When enabled in the Repository settings above, Git pushes are posted to Project Chat as Git activity.
+        </p>
       </section>
 
       <section className="overview__section">

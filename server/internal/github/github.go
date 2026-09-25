@@ -182,6 +182,13 @@ type Notifier interface {
 	Notify(ctx context.Context, userID, eventType string, payload any) error
 }
 
+// ChatPoster posts Server-generated Git activity into a Project's chat
+// (satisfied by a small adapter around *chat.Service, wired in internal/app,
+// so this package never imports chat).
+type ChatPoster interface {
+	PostGitActivity(ctx context.Context, projectID, body string) error
+}
+
 // ValidationError is safe to expose to API clients.
 type ValidationError struct {
 	Field   string

@@ -20,6 +20,9 @@ type fakeRepo struct {
 	purgeCutoff time.Time
 	listLimit   int
 	attachment  chat.Attachment
+	system      *chat.Message
+	files       []chat.ProjectFile
+	filesViewer string
 }
 
 func (f *fakeRepo) Create(_ context.Context, projectID, authorID, body string) (*chat.Message, error) {
@@ -30,6 +33,21 @@ func (f *fakeRepo) Create(_ context.Context, projectID, authorID, body string) (
 	message := &chat.Message{ID: "m-1", ProjectID: projectID, AuthorID: authorID, Body: body, CreatedAt: time.Now()}
 	f.message = message
 	return message, nil
+}
+func (f *fakeRepo) CreateSystem(_ context.Context, projectID, kind, body string) (*chat.Message, error) {
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
+	f.system = &chat.Message{ID: "m-system", ProjectID: projectID, Kind: kind, Body: body, CreatedAt: time.Now()}
+	copy := *f.system
+	return &copy, nil
+}
+func (f *fakeRepo) ListFiles(_ context.Context, _, viewerID string) ([]chat.ProjectFile, error) {
+	f.filesViewer = viewerID
+	if viewerID != "u1" {
+		return nil, chat.ErrNotFound
+	}
+	return f.files, nil
 }
 func (f *fakeRepo) ListPage(_ context.Context, _, _ string, _ *chat.Cursor, limit int) ([]chat.Message, error) {
 	f.listLimit = limit
@@ -210,5 +228,59 @@ func TestSendAttachmentRejectsConfiguredFileLimit(t *testing.T) {
 	var validation *chat.ValidationError
 	if !errors.As(err, &validation) {
 		t.Fatalf("expected validation error, got %v", err)
+	}
+}
+
+func TestCreateSystemMessagePersistsWithoutAuthorAndPublishes(t *testing.T) {
+	repo := &fakeRepo{}
+	publisher := &fakePublisher{}
+	svc := &chat.Service{Repo: repo, Membership: fakeMembership{ids: []string{"u1", "u2"}}, Publisher: publisher}
+
+	message, err := svc.CreateSystemMessage(context.Background(), "p1", chat.KindGit, "  alice pushed 1 commit → main  ")
+	if err != nil {
+		t.Fatalf("CreateSystemMessage: %v", err)
+	}
+	if message.Kind != chat.KindGit || message.AuthorID != "" || message.Body != "alice pushed 1 commit → main" {
+		t.Fatalf("unexpected system message: %+v", message)
+	}
+	if len(publisher.created) != 2 {
+		t.Fatalf("expected broadcast to two members, got %v", publisher.created)
+	}
+
+	// Over-long activity is truncated to the message limit, not rejected.
+	long, err := svc.CreateSystemMessage(context.Background(), "p1", chat.KindGit, strings.Repeat("x", chat.MaxMessageCharacters+50))
+	if err != nil {
+		t.Fatalf("long system message: %v", err)
+	}
+	if n := len([]rune(long.Body)); n != chat.MaxMessageCharacters {
+		t.Fatalf("truncated length = %d, want %d", n, chat.MaxMessageCharacters)
+	}
+
+	var validation *chat.ValidationError
+	if _, err := svc.CreateSystemMessage(context.Background(), "p1", chat.KindUser, "hi"); !errors.As(err, &validation) {
+		t.Fatalf("user kind must be rejected, got %v", err)
+	}
+	if _, err := svc.CreateSystemMessage(context.Background(), "p1", chat.KindGit, "   "); !errors.As(err, &validation) {
+		t.Fatalf("empty body must be rejected, got %v", err)
+	}
+}
+
+func TestListAttachmentsIsMembershipCheckedAndReturnsRepoOrder(t *testing.T) {
+	now := time.Now()
+	repo := &fakeRepo{files: []chat.ProjectFile{
+		{Attachment: chat.Attachment{ID: "a2", Filename: "new.txt", SizeBytes: 2}, AuthorUsername: "bob", CreatedAt: now},
+		{Attachment: chat.Attachment{ID: "a1", Filename: "old.txt", SizeBytes: 1}, AuthorUsername: "alice", CreatedAt: now.Add(-time.Hour)},
+	}}
+	svc := &chat.Service{Repo: repo}
+
+	files, err := svc.ListAttachments(context.Background(), "u1", "p1")
+	if err != nil {
+		t.Fatalf("ListAttachments: %v", err)
+	}
+	if len(files) != 2 || files[0].ID != "a2" || files[1].AuthorUsername != "alice" || repo.filesViewer != "u1" {
+		t.Fatalf("unexpected files: %+v (viewer %q)", files, repo.filesViewer)
+	}
+	if _, err := svc.ListAttachments(context.Background(), "outsider", "p1"); !errors.Is(err, chat.ErrNotFound) {
+		t.Fatalf("non-member: expected ErrNotFound, got %v", err)
 	}
 }

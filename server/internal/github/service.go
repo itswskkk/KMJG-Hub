@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -30,8 +31,9 @@ type Service struct {
 	Store      Store
 	Client     Client
 	Membership Membership
-	Publisher  Publisher // optional
-	Notifier   Notifier  // optional
+	Publisher  Publisher  // optional
+	Notifier   Notifier   // optional
+	ChatPoster ChatPoster // optional
 
 	// EncryptionKey (32 bytes) encrypts GitHub access tokens at rest and
 	// derives the OAuth state signing key.
@@ -375,10 +377,16 @@ func commitSummary(message string) string {
 // deliverPush fans a push out to repo's Project members: every member gets
 // the real-time Git activity event ("View Git activity" is a Member
 // capability); persistent notifications go to all members only when the
-// Owner has enabled NotifyAllMembers. Selecting individual members and
-// branches, and posting to Project Chat, are stored settings whose delivery
-// lands with the Git & Files work (see PROGRESS.md).
+// Owner has enabled NotifyAllMembers; and when PostPushesToChat is enabled
+// the push is posted once to Project Chat as Git activity (a system
+// message, not a user-authored one). Branch filtering (NotifyAllBranches)
+// has already been applied by the caller.
 func (s *Service) deliverPush(ctx context.Context, repo Repository, event PushEvent) {
+	if repo.PostPushesToChat && s.ChatPoster != nil {
+		if err := s.ChatPoster.PostGitActivity(ctx, repo.ProjectID, FormatPushMessage(repo, event)); err != nil {
+			slog.Error("github: post push to project chat failed", "project_id", repo.ProjectID, "error", err)
+		}
+	}
 	payload := map[string]any{
 		"project_id":       repo.ProjectID,
 		"repository":       repo.OwnerLogin + "/" + repo.Name,
@@ -397,6 +405,52 @@ func (s *Service) deliverPush(ctx context.Context, repo Repository, event PushEv
 			}
 		}
 	})
+}
+
+// maxChatCommitSummaries bounds how many commit summaries a Project Chat
+// Git activity message lists; the count line always reports the total.
+const maxChatCommitSummaries = 10
+
+// FormatPushMessage renders a push as a Project Chat Git activity message
+// with the information docs/PRD.md "Git Push Notifications" lists: who
+// pushed, the branch, the number of commits, and commit summaries, e.g.
+//
+//	alice-gh pushed 2 commits → main (alice-gh/hub)
+//	• Add feature
+//	• Fix bug
+func FormatPushMessage(repo Repository, event PushEvent) string {
+	pusher := event.PusherLogin
+	if pusher == "" {
+		pusher = "Someone"
+	}
+	var b strings.Builder
+	switch event.CommitCount {
+	case 0:
+		fmt.Fprintf(&b, "%s pushed → %s", pusher, event.Branch)
+	case 1:
+		fmt.Fprintf(&b, "%s pushed 1 commit → %s", pusher, event.Branch)
+	default:
+		fmt.Fprintf(&b, "%s pushed %d commits → %s", pusher, event.CommitCount, event.Branch)
+	}
+	if repo.OwnerLogin != "" && repo.Name != "" {
+		fmt.Fprintf(&b, " (%s/%s)", repo.OwnerLogin, repo.Name)
+	}
+	shown := 0
+	for _, summary := range event.CommitSummaries {
+		if shown == maxChatCommitSummaries {
+			break
+		}
+		if summary == "" {
+			continue
+		}
+		b.WriteString("\n• ")
+		b.WriteString(summary)
+		shown++
+	}
+	if rest := event.CommitCount - shown; shown > 0 && rest > 0 {
+		fmt.Fprintf(&b, "\n…and %d more", rest)
+	}
+	return b.String()
 }
 
 // forEachMember runs fn for each current member of projectID. Delivery is

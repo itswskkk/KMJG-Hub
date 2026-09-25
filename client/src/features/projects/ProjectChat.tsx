@@ -158,6 +158,20 @@ function ProjectChat({ detail, serverUrl, token, viewerUserId, onSessionExpired 
         {loading && <p className="project-chat__state">Loading messages...</p>}
         {!loading && messages.length === 0 && <p className="project-chat__state">No messages yet. Start the conversation.</p>}
         {messages.map((message) => {
+          // Git activity and other Server-generated entries are not
+          // user-authored messages: no author and no delete action
+          // (docs/UX.md "System and Git Activity").
+          if (message.kind && message.kind !== "user") {
+            return (
+              <article className="project-chat__message project-chat__message--system" key={message.id}>
+                <div className="project-chat__message-header">
+                  <strong>{message.kind === "git" ? "Git Activity" : "Activity"}</strong>
+                  <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString()}</time>
+                </div>
+                <p>{message.body}</p>
+              </article>
+            );
+          }
           const mayDelete = message.author_id === viewerUserId || canModerate;
           return (
             <article className="project-chat__message" key={message.id}>

@@ -5,6 +5,8 @@ import Members from "./Members";
 import ProjectChat from "./ProjectChat";
 import ProjectTasks from "./ProjectTasks";
 import DeveloperTools from "./DeveloperTools";
+import GitSection from "./GitSection";
+import FilesSection from "./FilesSection";
 import { useProjectTaskEvents } from "../presence/PresenceProvider";
 import WorkContextPanel from "../work-context/WorkContextPanel";
 import "./ProjectWorkspace.css";
@@ -18,13 +20,18 @@ interface ProjectWorkspaceProps {
   onSessionExpired: () => void;
 }
 
-type Section = "overview" | "chat" | "tasks" | "members" | "developerTools";
+type Section = "overview" | "chat" | "tasks" | "members" | "git" | "files" | "developerTools";
 
-// Sidebar navigation per docs/UX.md "Project Workspace". Overview, Chat,
-// Members, and Developer Tools are implemented; the rest are real Project
-// Workspace sections from the same UX spec, shown but disabled rather than
-// omitted, the same treatment as the disabled GitHub login option.
-const DISABLED_SIDEBAR_ITEMS = ["Git", "Files"];
+// Sidebar navigation per docs/UX.md "Project Workspace".
+const SIDEBAR_ITEMS: { section: Section; label: string }[] = [
+  { section: "overview", label: "Overview" },
+  { section: "chat", label: "Chat" },
+  { section: "tasks", label: "Tasks" },
+  { section: "members", label: "Members" },
+  { section: "git", label: "Git" },
+  { section: "files", label: "Files" },
+  { section: "developerTools", label: "Developer Tools" },
+];
 
 function ProjectWorkspace({
   serverUrl,
@@ -105,61 +112,20 @@ function ProjectWorkspace({
         <h1 className="project-workspace__title">{detail ? detail.name : "Loading..."}</h1>
 
         <nav className="project-workspace__nav">
-          <button
-            type="button"
-            className={
-              section === "overview"
-                ? "project-workspace__nav-item project-workspace__nav-item--active"
-                : "project-workspace__nav-item"
-            }
-            onClick={() => setSection("overview")}
-          >
-            Overview
-          </button>
-          <button
-            type="button"
-            className={
-              section === "chat"
-                ? "project-workspace__nav-item project-workspace__nav-item--active"
-                : "project-workspace__nav-item"
-            }
-            onClick={() => setSection("chat")}
-          >
-            Chat
-          </button>
-          <button type="button" className={section === "tasks" ? "project-workspace__nav-item project-workspace__nav-item--active" : "project-workspace__nav-item"} onClick={() => setSection("tasks")}>
-            Tasks
-          </button>
-          <button
-            type="button"
-            className={
-              section === "members"
-                ? "project-workspace__nav-item project-workspace__nav-item--active"
-                : "project-workspace__nav-item"
-            }
-            onClick={() => setSection("members")}
-          >
-            Members
-          </button>
-          <button
-            type="button"
-            className={
-              section === "developerTools"
-                ? "project-workspace__nav-item project-workspace__nav-item--active"
-                : "project-workspace__nav-item"
-            }
-            onClick={() => setSection("developerTools")}
-          >
-            Developer Tools
-          </button>
-          {DISABLED_SIDEBAR_ITEMS.map((item) => (
-            <span
-              key={item}
-              className="project-workspace__nav-item project-workspace__nav-item--disabled"
-              title="Not available yet"
+          {SIDEBAR_ITEMS.map((item) => (
+            <button
+              key={item.section}
+              type="button"
+              className={
+                section === item.section
+                  ? "project-workspace__nav-item project-workspace__nav-item--active"
+                  : "project-workspace__nav-item"
+              }
+              aria-current={section === item.section ? "page" : undefined}
+              onClick={() => setSection(item.section)}
             >
-              {item}
-            </span>
+              {item.label}
+            </button>
           ))}
         </nav>
       </aside>
@@ -177,6 +143,27 @@ function ProjectWorkspace({
           <ProjectChat detail={detail} serverUrl={serverUrl} token={token} viewerUserId={viewerUserId} onSessionExpired={onSessionExpired} />
         )}
         {detail && section === "tasks" && <ProjectTasks detail={detail} serverUrl={serverUrl} token={token} viewerUserId={viewerUserId} onSessionExpired={onSessionExpired} />}
+        {detail && section === "git" && (
+          <GitSection
+            serverUrl={serverUrl}
+            token={token}
+            projectId={projectId}
+            viewerUserId={viewerUserId}
+            viewerRole={detail.role}
+            onSessionExpired={onSessionExpired}
+            onOpenOverview={() => setSection("overview")}
+            onOpenDeveloperTools={() => setSection("developerTools")}
+          />
+        )}
+        {detail && section === "files" && (
+          <FilesSection
+            serverUrl={serverUrl}
+            token={token}
+            projectId={projectId}
+            onSessionExpired={onSessionExpired}
+            onOpenChat={() => setSection("chat")}
+          />
+        )}
         {detail && section === "developerTools" && <DeveloperTools projectId={projectId} />}
         {detail && section === "members" && (
           <Members

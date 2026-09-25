@@ -424,3 +424,87 @@ func TestWebhookMalformedPayload(t *testing.T) {
 		t.Fatalf("expected validation error, got %v", err)
 	}
 }
+
+type fakeChatPoster struct {
+	mu    sync.Mutex
+	posts []string // projectID + "|" + body
+}
+
+func (f *fakeChatPoster) PostGitActivity(_ context.Context, projectID, body string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.posts = append(f.posts, projectID+"|"+body)
+	return nil
+}
+
+func TestWebhookPushPostsToProjectChatWhenConfigured(t *testing.T) {
+	f := newFixture(t)
+	poster := &fakeChatPoster{}
+	f.svc.ChatPoster = poster
+	ctx := context.Background()
+	f.connectAccount(t, "owner", "code-owner")
+	if _, err := f.svc.ConnectRepository(ctx, "owner", "p1", 42); err != nil {
+		t.Fatal(err)
+	}
+	send := func(ref string) {
+		t.Helper()
+		payload := pushPayload(t, 42, ref)
+		if err := f.svc.HandleWebhook(ctx, "push", payload, githubtest.Sign(webhookSecret, payload)); err != nil {
+			t.Fatalf("webhook: %v", err)
+		}
+	}
+
+	// Posting to chat is off by default.
+	if _, err := f.svc.UpdateNotificationConfig(ctx, "owner", "p1", false, true, true); err != nil {
+		t.Fatal(err)
+	}
+	send("refs/heads/main")
+	if len(poster.posts) != 0 {
+		t.Fatalf("posted with post_pushes_to_chat=false: %v", poster.posts)
+	}
+
+	// Enabled for all branches: one post per push (not per member).
+	if _, err := f.svc.UpdateNotificationConfig(ctx, "owner", "p1", true, true, true); err != nil {
+		t.Fatal(err)
+	}
+	send("refs/heads/feature")
+	if len(poster.posts) != 1 {
+		t.Fatalf("expected exactly one chat post, got %v", poster.posts)
+	}
+	want := "p1|alice-gh pushed 2 commits → feature (alice-gh/hub)\n• Add feature\n• Fix bug"
+	if poster.posts[0] != want {
+		t.Fatalf("chat post:\n got %q\nwant %q", poster.posts[0], want)
+	}
+
+	// Default branch only: non-default pushes are not posted.
+	if _, err := f.svc.UpdateNotificationConfig(ctx, "owner", "p1", true, true, false); err != nil {
+		t.Fatal(err)
+	}
+	poster.posts = nil
+	send("refs/heads/feature")
+	if len(poster.posts) != 0 {
+		t.Fatalf("non-default branch posted: %v", poster.posts)
+	}
+	send("refs/heads/main")
+	if len(poster.posts) != 1 || !strings.HasPrefix(poster.posts[0], "p1|alice-gh pushed 2 commits → main") {
+		t.Fatalf("default branch post: %v", poster.posts)
+	}
+}
+
+func TestFormatPushMessage(t *testing.T) {
+	repo := github.Repository{OwnerLogin: "o", Name: "r"}
+	if got := github.FormatPushMessage(repo, github.PushEvent{PusherLogin: "a", Branch: "main", CommitCount: 1, CommitSummaries: []string{"Only"}}); got != "a pushed 1 commit → main (o/r)\n• Only" {
+		t.Fatalf("single commit: %q", got)
+	}
+	summaries := make([]string, 20)
+	for i := range summaries {
+		summaries[i] = "c"
+	}
+	got := github.FormatPushMessage(repo, github.PushEvent{PusherLogin: "a", Branch: "dev", CommitCount: 25, CommitSummaries: summaries})
+	if strings.Count(got, "\n• ") != 10 || !strings.HasSuffix(got, "\n…and 15 more") {
+		t.Fatalf("capped summaries: %q", got)
+	}
+	if got := github.FormatPushMessage(repo, github.PushEvent{Branch: "main"}); got != "Someone pushed → main (o/r)" {
+		t.Fatalf("no commits: %q", got)
+	}
+}

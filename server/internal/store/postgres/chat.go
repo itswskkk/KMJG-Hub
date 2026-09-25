@@ -30,13 +30,13 @@ func (r *ChatRepository) Create(ctx context.Context, projectID, authorID, body s
 				SELECT 1 FROM project_members
 				WHERE project_id = $1 AND user_id = $2
 			)
-			RETURNING id, project_id, author_user_id, body, created_at
+			RETURNING id, project_id, kind, author_user_id, body, created_at
 		)
-		SELECT i.id, i.project_id, i.author_user_id, u.username, i.body, i.created_at
+		SELECT i.id, i.project_id, i.kind, i.author_user_id, u.username, i.body, i.created_at
 		FROM inserted i
 		JOIN users u ON u.id = i.author_user_id
 	`, projectID, authorID, body).Scan(
-		&message.ID, &message.ProjectID, &message.AuthorID,
+		&message.ID, &message.ProjectID, &message.Kind, &message.AuthorID,
 		&message.AuthorUsername, &message.Body, &message.CreatedAt,
 	)
 	if err != nil {
@@ -72,12 +72,14 @@ func (r *ChatRepository) ListPage(ctx context.Context, projectID, viewerID strin
 		beforeID = before.ID
 	}
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, project_id, author_user_id, author_username, body, created_at
+		SELECT id, project_id, kind, author_id, author_username, body, created_at
 		FROM (
-			SELECT m.id, m.project_id, m.author_user_id, u.username AS author_username,
+			SELECT m.id, m.project_id, m.kind,
+			       COALESCE(m.author_user_id::text, '') AS author_id,
+			       COALESCE(u.username, '') AS author_username,
 			       m.body, m.created_at
 			FROM project_chat_messages m
-			JOIN users u ON u.id = m.author_user_id
+			LEFT JOIN users u ON u.id = m.author_user_id
 			WHERE m.project_id = $1
 			  AND m.deleted_at IS NULL
 			  AND ($4::timestamptz IS NULL OR (m.created_at,m.id) < ($4,$5::uuid))
@@ -101,7 +103,7 @@ func (r *ChatRepository) ListPage(ctx context.Context, projectID, viewerID strin
 	messages := make([]chat.Message, 0)
 	for rows.Next() {
 		var message chat.Message
-		if err := rows.Scan(&message.ID, &message.ProjectID, &message.AuthorID,
+		if err := rows.Scan(&message.ID, &message.ProjectID, &message.Kind, &message.AuthorID,
 			&message.AuthorUsername, &message.Body, &message.CreatedAt); err != nil {
 			return nil, err
 		}
@@ -160,8 +162,8 @@ func (r *ChatRepository) CreateWithAttachment(ctx context.Context, projectID, au
 	err = tx.QueryRow(ctx, `WITH inserted AS (
 		INSERT INTO project_chat_messages(project_id,author_user_id,body)
 		SELECT $1,$2,$3 WHERE EXISTS(SELECT 1 FROM project_members WHERE project_id=$1 AND user_id=$2)
-		RETURNING id,project_id,author_user_id,body,created_at)
-		SELECT i.id,i.project_id,i.author_user_id,u.username,i.body,i.created_at FROM inserted i JOIN users u ON u.id=i.author_user_id`, projectID, authorID, body).Scan(&message.ID, &message.ProjectID, &message.AuthorID, &message.AuthorUsername, &message.Body, &message.CreatedAt)
+		RETURNING id,project_id,kind,author_user_id,body,created_at)
+		SELECT i.id,i.project_id,i.kind,i.author_user_id,u.username,i.body,i.created_at FROM inserted i JOIN users u ON u.id=i.author_user_id`, projectID, authorID, body).Scan(&message.ID, &message.ProjectID, &message.Kind, &message.AuthorID, &message.AuthorUsername, &message.Body, &message.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) || isInvalidUUID(err) {
 		return nil, chat.ErrNotFound
 	}
@@ -179,6 +181,63 @@ func (r *ChatRepository) CreateWithAttachment(ctx context.Context, projectID, au
 	}
 	message.Attachments = []chat.Attachment{attachment}
 	return &message, nil
+}
+
+// CreateSystem inserts a Server-generated message (no author) into an
+// existing, non-deleted Project.
+func (r *ChatRepository) CreateSystem(ctx context.Context, projectID, kind, body string) (*chat.Message, error) {
+	message := chat.Message{Kind: kind}
+	err := r.pool.QueryRow(ctx, `
+		INSERT INTO project_chat_messages (project_id, kind, body)
+		SELECT p.id, $2::text, $3::text FROM projects p WHERE p.id = $1::uuid AND p.deleted_at IS NULL
+		RETURNING id, project_id, body, created_at
+	`, projectID, kind, body).Scan(&message.ID, &message.ProjectID, &message.Body, &message.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) || isInvalidUUID(err) {
+		return nil, chat.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &message, nil
+}
+
+// ListFiles lists every attachment of projectID's active messages, newest
+// first, to a Project member.
+func (r *ChatRepository) ListFiles(ctx context.Context, projectID, viewerID string) ([]chat.ProjectFile, error) {
+	var member bool
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM project_members WHERE project_id=$1 AND user_id=$2)`, projectID, viewerID).Scan(&member)
+	if isInvalidUUID(err) {
+		return nil, chat.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !member {
+		return nil, chat.ErrNotFound
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT a.id, a.message_id, a.project_id, a.storage_id, a.filename, a.content_type, a.size_bytes,
+		       COALESCE(m.author_user_id::text, ''), COALESCE(u.username, ''), a.created_at
+		FROM project_chat_attachments a
+		JOIN project_chat_messages m ON m.id = a.message_id
+		LEFT JOIN users u ON u.id = m.author_user_id
+		WHERE a.project_id = $1 AND m.deleted_at IS NULL
+		ORDER BY a.created_at DESC, a.id DESC
+	`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	files := make([]chat.ProjectFile, 0)
+	for rows.Next() {
+		var f chat.ProjectFile
+		if err := rows.Scan(&f.ID, &f.MessageID, &f.ProjectID, &f.StorageID, &f.Filename, &f.ContentType, &f.SizeBytes,
+			&f.AuthorID, &f.AuthorUsername, &f.CreatedAt); err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+	return files, rows.Err()
 }
 
 func (r *ChatRepository) GetAttachment(ctx context.Context, projectID, attachmentID, viewerID string) (*chat.Attachment, error) {
@@ -218,15 +277,18 @@ func (r *ChatRepository) SoftDelete(ctx context.Context, projectID, messageID, a
 		WITH actor AS MATERIALIZED (
 			SELECT role FROM project_members WHERE project_id = $1 AND user_id = $3
 		), target AS MATERIALIZED (
-			SELECT m.id, m.project_id, m.author_user_id, u.username, m.body, m.created_at
+			SELECT m.id, m.project_id, m.kind, m.author_user_id, u.username, m.body, m.created_at
 			FROM project_chat_messages m
-			JOIN users u ON u.id = m.author_user_id
+			LEFT JOIN users u ON u.id = m.author_user_id
 			WHERE m.project_id = $1 AND m.id = $2 AND m.deleted_at IS NULL
 		), updated AS (
 			UPDATE project_chat_messages m
 			SET deleted_at = now(), deleted_by_user_id = $3
 			FROM actor, target
 			WHERE m.id = target.id
+			  -- Server-generated activity (kind <> 'user') is not an ordinary
+			  -- user-authored message: the normal delete action never applies.
+			  AND target.kind = 'user'
 			  AND (target.author_user_id = $3 OR actor.role IN ('owner', 'admin'))
 			RETURNING m.id
 		)
@@ -258,7 +320,7 @@ func (r *ChatRepository) SoftDelete(ctx context.Context, projectID, messageID, a
 		return nil, chat.ErrForbidden
 	}
 	return &chat.Message{
-		ID: id, ProjectID: returnedProjectID, AuthorID: authorID,
+		ID: id, ProjectID: returnedProjectID, Kind: chat.KindUser, AuthorID: authorID,
 		AuthorUsername: username, Body: body, CreatedAt: *createdAt,
 	}, nil
 }

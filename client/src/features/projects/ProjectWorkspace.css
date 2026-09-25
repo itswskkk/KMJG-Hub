@@ -66,11 +66,6 @@ button.project-workspace__nav-item--active:hover {
   background: rgba(74, 125, 252, 0.2);
 }
 
-.project-workspace__nav-item--disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
 .project-workspace__content {
   flex: 1;
   box-sizing: border-box;

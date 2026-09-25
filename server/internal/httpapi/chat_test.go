@@ -45,7 +45,7 @@ func (f *fakeChatRepo) Create(_ context.Context, projectID, authorID, body strin
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.nextID++
-	message := chat.Message{ID: fmt.Sprintf("message-%d", f.nextID), ProjectID: projectID, AuthorID: authorID, AuthorUsername: f.users.usernameFor(authorID), Body: body, CreatedAt: time.Now().UTC()}
+	message := chat.Message{ID: fmt.Sprintf("message-%d", f.nextID), ProjectID: projectID, Kind: chat.KindUser, AuthorID: authorID, AuthorUsername: f.users.usernameFor(authorID), Body: body, CreatedAt: time.Now().UTC()}
 	f.messages[projectID] = append(f.messages[projectID], message)
 	copy := message
 	return &copy, nil
@@ -86,10 +86,39 @@ func (f *fakeChatRepo) CreateWithAttachment(_ context.Context, projectID, author
 	attachment.ID = fmt.Sprintf("attachment-%d", f.nextID)
 	attachment.MessageID = messageID
 	attachment.ProjectID = projectID
-	message := chat.Message{ID: messageID, ProjectID: projectID, AuthorID: authorID, AuthorUsername: f.users.usernameFor(authorID), Body: body, CreatedAt: time.Now().UTC(), Attachments: []chat.Attachment{attachment}}
+	message := chat.Message{ID: messageID, ProjectID: projectID, Kind: chat.KindUser, AuthorID: authorID, AuthorUsername: f.users.usernameFor(authorID), Body: body, CreatedAt: time.Now().UTC(), Attachments: []chat.Attachment{attachment}}
 	f.messages[projectID] = append(f.messages[projectID], message)
 	copy := message
 	return &copy, nil
+}
+
+func (f *fakeChatRepo) CreateSystem(_ context.Context, projectID, kind, body string) (*chat.Message, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextID++
+	message := chat.Message{ID: fmt.Sprintf("message-%d", f.nextID), ProjectID: projectID, Kind: kind, Body: body, CreatedAt: time.Now().UTC()}
+	f.messages[projectID] = append(f.messages[projectID], message)
+	copy := message
+	return &copy, nil
+}
+
+// ListFiles mirrors the SQL repository: members only, attachments of
+// active messages, newest first.
+func (f *fakeChatRepo) ListFiles(_ context.Context, projectID, viewerID string) ([]chat.ProjectFile, error) {
+	if _, ok := f.role(projectID, viewerID); !ok {
+		return nil, chat.ErrNotFound
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	files := make([]chat.ProjectFile, 0)
+	messages := f.messages[projectID]
+	for i := len(messages) - 1; i >= 0; i-- {
+		m := messages[i]
+		for j := len(m.Attachments) - 1; j >= 0; j-- {
+			files = append(files, chat.ProjectFile{Attachment: m.Attachments[j], AuthorID: m.AuthorID, AuthorUsername: m.AuthorUsername, CreatedAt: m.CreatedAt})
+		}
+	}
+	return files, nil
 }
 
 func (f *fakeChatRepo) GetAttachment(_ context.Context, projectID, attachmentID, viewerID string) (*chat.Attachment, error) {
@@ -123,7 +152,7 @@ func (f *fakeChatRepo) SoftDelete(_ context.Context, projectID, messageID, actor
 		if message.ID != messageID {
 			continue
 		}
-		if message.AuthorID != actorID && role != project.RoleOwner && role != project.RoleAdmin {
+		if message.Kind != chat.KindUser || (message.AuthorID != actorID && role != project.RoleOwner && role != project.RoleAdmin) {
 			return nil, chat.ErrForbidden
 		}
 		f.messages[projectID] = append(f.messages[projectID][:i], f.messages[projectID][i+1:]...)
@@ -324,4 +353,98 @@ func TestProjectChatAttachmentRoundTrip(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "storage_limit") {
 		t.Fatalf("quota body: %s", rec.Body.String())
 	}
+}
+
+func TestProjectChatListAttachments(t *testing.T) {
+	router, _, projects := newTestRouterWithHandlers()
+	ownerToken := registerAndToken(t, router, "files-owner")
+	memberToken := registerAndToken(t, router, "files-member")
+	outsiderToken := registerAndToken(t, router, "files-outsider")
+	created := doJSON(t, router, http.MethodPost, "/api/v1/projects", map[string]string{"name": "Files"}, ownerToken)
+	var p struct {
+		ID string `json:"id"`
+	}
+	decodeJSON(t, created, &p)
+	projects.addMember(p.ID, currentUserID(t, router, memberToken), project.RoleMember)
+	base := "/api/v1/projects/" + p.ID + "/chat/attachments"
+
+	type listed struct {
+		Attachments []struct {
+			ID             string    `json:"id"`
+			MessageID      string    `json:"message_id"`
+			Filename       string    `json:"filename"`
+			SizeBytes      int64     `json:"size_bytes"`
+			AuthorID       string    `json:"author_id"`
+			AuthorUsername string    `json:"author_username"`
+			CreatedAt      time.Time `json:"created_at"`
+			StorageID      *string   `json:"storage_id"`
+		} `json:"attachments"`
+	}
+
+	// Empty list is an array, not null.
+	rec := doJSON(t, router, http.MethodGet, base, nil, memberToken)
+	expectStatus(t, rec, http.StatusOK, "empty list")
+	if !strings.Contains(rec.Body.String(), `"attachments":[]`) {
+		t.Fatalf("empty list body: %s", rec.Body.String())
+	}
+
+	expectStatus(t, doMultipart(t, router, http.MethodPost, base, ownerToken, "first.txt", "text/plain", []byte("one"), nil), http.StatusCreated, "upload first")
+	rec = doMultipart(t, router, http.MethodPost, base, memberToken, "second.txt", "text/plain", []byte("second"), nil)
+	expectStatus(t, rec, http.StatusCreated, "upload second")
+	var second struct {
+		ID string `json:"id"`
+	}
+	decodeJSON(t, rec, &second)
+	// Plain text messages contribute no files.
+	expectStatus(t, doJSON(t, router, http.MethodPost, "/api/v1/projects/"+p.ID+"/chat/messages", map[string]string{"body": "no file"}, ownerToken), http.StatusCreated, "text message")
+
+	rec = doJSON(t, router, http.MethodGet, base, nil, ownerToken)
+	expectStatus(t, rec, http.StatusOK, "list")
+	var got listed
+	decodeJSON(t, rec, &got)
+	if len(got.Attachments) != 2 {
+		t.Fatalf("expected 2 attachments, got %s", rec.Body.String())
+	}
+	if got.Attachments[0].Filename != "second.txt" || got.Attachments[0].AuthorUsername != "files-member" || got.Attachments[0].SizeBytes != 6 {
+		t.Fatalf("newest first with author: %s", rec.Body.String())
+	}
+	if got.Attachments[1].Filename != "first.txt" || got.Attachments[1].AuthorUsername != "files-owner" || got.Attachments[1].CreatedAt.IsZero() {
+		t.Fatalf("second entry: %s", rec.Body.String())
+	}
+	if got.Attachments[0].StorageID != nil || strings.Contains(rec.Body.String(), "storage_id") {
+		t.Fatalf("storage id must not be exposed: %s", rec.Body.String())
+	}
+
+	// Listed IDs work with the existing download endpoint.
+	expectStatus(t, doJSON(t, router, http.MethodGet, base+"/"+got.Attachments[1].ID, nil, memberToken), http.StatusOK, "download listed file")
+
+	expectStatus(t, doJSON(t, router, http.MethodGet, base, nil, outsiderToken), http.StatusNotFound, "outsider list")
+
+	// Deleting the carrying message removes the file from the list.
+	expectStatus(t, doJSON(t, router, http.MethodDelete, "/api/v1/projects/"+p.ID+"/chat/messages/"+second.ID, nil, memberToken), http.StatusNoContent, "delete message")
+	rec = doJSON(t, router, http.MethodGet, base, nil, memberToken)
+	got = listed{}
+	decodeJSON(t, rec, &got)
+	if len(got.Attachments) != 1 || got.Attachments[0].Filename != "first.txt" {
+		t.Fatalf("after delete: %s", rec.Body.String())
+	}
+}
+
+func TestProjectChatSystemMessagesAreNotDeletable(t *testing.T) {
+	router, handlers, _ := newTestRouterWithHandlers()
+	ownerToken := registerAndToken(t, router, "sys-owner")
+	created := doJSON(t, router, http.MethodPost, "/api/v1/projects", map[string]string{"name": "System"}, ownerToken)
+	var p struct {
+		ID string `json:"id"`
+	}
+	decodeJSON(t, created, &p)
+	message, err := handlers.Chat.CreateSystemMessage(context.Background(), p.ID, chat.KindGit, "alice-gh pushed 1 commit → main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := doJSON(t, router, http.MethodGet, "/api/v1/projects/"+p.ID+"/chat/messages", nil, ownerToken)
+	if !strings.Contains(rec.Body.String(), `"kind":"git"`) || !strings.Contains(rec.Body.String(), `"author_id":""`) {
+		t.Fatalf("system message listing: %s", rec.Body.String())
+	}
+	expectStatus(t, doJSON(t, router, http.MethodDelete, "/api/v1/projects/"+p.ID+"/chat/messages/"+message.ID, nil, ownerToken), http.StatusForbidden, "owner deleting git activity")
 }
