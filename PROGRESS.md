@@ -125,6 +125,57 @@ skipped):
   cleanup job (they persist until downloaded and are never purged
   afterward).
 
+### Live browser verification of this checkpoint (same day)
+
+After all 12 commits above, the local no-Docker dev stack
+(`scripts/dev-up.sh`) was rebuilt from scratch and driven with a real
+headless browser (Playwright/Chromium) against real accounts (`alice` /
+`bob`, `password123`), not mocks. Screenshots were taken and inspected for
+every new screen:
+
+- **Server Home**: Notifications (unread badge), Messages, Friends, Files,
+  Your Profile, Switch Server all present and clickable.
+- **Notifications**: real unread item for a Direct Message, Mark
+  Read/Dismiss/Open worked.
+- **Friends**: sent a request from alice, accepted as bob, friendship
+  showed with Send File / Block / Remove.
+- **Direct Messages**: full conversation thread, delete-own-message,
+  4,000-char counter, rendered correctly both directions.
+- **Your Profile**: all 7 fields with all 5 privacy audiences per field
+  rendered and editable; saved display name/bio round-tripped.
+- **File Transfers**: empty Received/Sent state with the real configured
+  max upload size shown.
+- **Project Workspace sidebar**: Overview, Chat, Tasks, Members, Git,
+  Files, Developer Tools are all real sections now (confirmed Git/Files
+  are no longer the `DISABLED_SIDEBAR_ITEMS` placeholders from before this
+  checkpoint).
+- **Project Overview Danger Zone**: correctly blocked the Owner from
+  leaving ("Transfer ownership ... first") and showed the Delete Project
+  action.
+- **Tasks** (Kanban), **Project Chat**, **Members** (invite by
+  username/email + invite link/code): all functioned against the live
+  server.
+
+**Found during this pass, not code bugs:** a stale, previously-deployed
+`kmjg-hub-server` binary was independently still running on `:8080` (a
+different OS user, likely left over from the `docker compose` smoke test
+recorded below) — hitting it instead of the freshly-rebuilt dev instance on
+`:8090` produces `404` on every route added by this checkpoint, since that
+binary predates all of it. This is an artifact of this particular
+development machine having two KMJG Hub instances up at once, not a defect
+in the application; noted here so a future session isn't confused by the
+same symptom. A minor CSS wrapping issue was also observed on the
+Server-Home-style header's server-URL text at this checkpoint's dev viewport
+width — cosmetic only, not yet fixed.
+
+**GitHub integration confirmed correctly "not configured"** in this
+environment (`GET /api/v1/auth/github` → `{"configured":false,"connected":
+false}`), as expected with no `KMJG_GITHUB_CLIENT_ID`/`_SECRET` set — this
+is the documented graceful-degradation behavior from Phase 5, not a defect.
+Enabling it for real requires registering a GitHub OAuth App (callback URL
+`<server>/api/v1/auth/github/callback`) and setting the four
+`KMJG_GITHUB_*` environment variables described in that phase's commit.
+
 ---
 
 ## Live Verification, Docs Audit, and Desktop Build (2026-09-26)
